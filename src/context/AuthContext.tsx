@@ -19,7 +19,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (storedUser) {
                 try {
                     return JSON.parse(storedUser);
-                } catch (e) {
+                } catch (_e) {
                     return null;
                 }
             }

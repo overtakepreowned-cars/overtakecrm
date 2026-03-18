@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { isSameDay } from 'date-fns';
-import { Lead, SmartList, User, Tag, FollowupRecord } from '../types';
+import { Lead, User, SmartList, Tag, FollowupRecord, ApiLeadEditData } from '../types';
 
 interface LeadsContextType {
     leads: Lead[];
@@ -14,7 +14,7 @@ interface LeadsContextType {
     addLead: (lead: Partial<Lead>) => Promise<void>;
     updateLead: (id: string, updates: Partial<Lead>) => Promise<void>;
     deleteLead: (id: string) => Promise<void>;
-    updateApiLead: (id: string, updates: Partial<Lead>) => Promise<void>;
+    updateApiLead: (id: string, updates: ApiLeadEditData | Partial<Lead>) => Promise<void>;
     deleteApiLead: (id: string) => Promise<void>;
     approveApiLead: (id: string) => Promise<void>;
     addUser: (user: Partial<User>) => Promise<void>;
@@ -160,7 +160,7 @@ export function LeadsProvider({ children }: { children: React.ReactNode }) {
         } catch (err) { console.error('Error deleting lead', err); }
     };
 
-    const updateApiLead = async (id: string, updates: Partial<Lead>) => {
+    const updateApiLead = async (id: string, updates: ApiLeadEditData | Partial<Lead>) => {
         try {
             const res = await fetch(`/api/api-leads/${id}`, {
                 method: 'PUT',

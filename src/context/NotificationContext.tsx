@@ -31,7 +31,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         localStorage.setItem('crm_notifications', JSON.stringify(notifications));
     }, [notifications]);
 
-    const addNotification = useCallback((_message: string, _type: Notification['type'] = 'info', _userName?: string) => {
+    const addNotification = useCallback(() => {
         // Notification feature stopped as requested
         return;
     }, []);

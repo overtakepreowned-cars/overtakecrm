@@ -1,9 +1,9 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLeads } from '../../context/LeadsContext';
-import { Search, Filter, X, Briefcase, Bookmark, MoreHorizontal, Trash2, UserPlus, CheckCircle2, Phone, Car, Edit3, Save, User, AlertTriangle } from 'lucide-react';
+import { Search, Filter, X, Briefcase, Bookmark, MoreHorizontal, Trash2, UserPlus, CheckCircle2, Phone, Car, Edit3, Save, User as UserIcon, AlertTriangle } from 'lucide-react';
 import { isSameDay, parseISO, format } from 'date-fns';
-import { LeadFilter, Lead, CarDetail } from '../../types';
+import { Lead, CarDetail, ApiLeadEditData, LeadFilter } from '../../types';
 import { TagInput } from '../../components/TagInput';
 import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
 
@@ -61,7 +61,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
 
     // Inline edit state for API lead cards
     const [editingApiLeadId, setEditingApiLeadId] = useState<string | null>(null);
-    const [editData, setEditData] = useState<Partial<Lead>>({});
+    const [editData, setEditData] = useState<ApiLeadEditData>({});
     const [editFocus, setEditFocus] = useState<string | null>(null);
 
     // Delete Modal State
@@ -90,8 +90,9 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
             assignedTo: typeof lead.assignedTo === 'object' ? lead.assignedTo?._id || '' : lead.assignedTo || '',
             carDetails: lead.carDetails?.map((c: CarDetail) => ({
                 intent: c.intent || 'buying',
-                wantedCar: { brandName: c.wantedCar?.brandName || '', modelName: c.wantedCar?.modelName || '' },
-                ownedCar: { brandName: c.ownedCar?.brandName || '', modelName: c.ownedCar?.modelName || '', year: c.ownedCar?.year || '', kmDriven: c.ownedCar?.kmDriven || '' },
+                wantedCar: { brandName: c.wantedCar?.brandName || '', modelName: c.wantedCar?.modelName || '', fuelType: c.wantedCar?.fuelType || 'petrol', kmDriven: c.wantedCar?.kmDriven || '' },
+                ownedCar: { brandName: c.ownedCar?.brandName || '', modelName: c.ownedCar?.modelName || '', fuelType: c.ownedCar?.fuelType || 'petrol', kmDriven: c.ownedCar?.kmDriven || '', year: c.ownedCar?.year || '' },
+                additionalReqs: c.additionalReqs || ''
             })) || [],
         });
     };
@@ -1197,7 +1198,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
 
                                     {/* Assign User */}
                                     <div className="flex flex-col gap-1.5">
-                                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><User size={10} /> Assign To</label>
+                                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><UserIcon size={10} /> Assign To</label>
                                         <select value={editData.assignedTo} onChange={e => setEditData(d => ({ ...d, assignedTo: e.target.value }))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all">
                                             <option value="">Unassigned</option>
                                             {users.map(u => <option key={u._id} value={u._id}>{u.username}</option>)}
@@ -1205,12 +1206,12 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                     </div>
 
                                     {/* Vehicle Details */}
-                                    {editData.carDetails?.length > 0 && (
+                                    {(editData.carDetails?.length ?? 0) > 0 && (
                                         <div className="flex flex-col gap-2 mt-1">
                                             <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><Car size={10}/> Vehicles</span>
-                                            {editData.carDetails.map((car: CarDetail, idx: number) => (
+                                            {(editData.carDetails ?? []).map((car: CarDetail, idx: number) => (
                                                 <div key={idx} className="p-3 rounded-lg border border-indigo-100 bg-indigo-50/20 flex flex-col gap-2">
-                                                    <select value={car.intent} onChange={e => { const cd = [...editData.carDetails]; cd[idx] = { ...cd[idx], intent: e.target.value }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs">
+                                                    <select value={car.intent} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], intent: e.target.value as 'buying' | 'selling' | 'exchange' }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs">
                                                         <option value="buying">Buying</option><option value="selling">Selling</option><option value="exchange">Exchange</option>
                                                     </select>
                                                     {car.intent !== 'selling' && (
@@ -1218,21 +1219,21 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                                             <span className="text-[9px] font-bold text-gray-400 uppercase">Wanted Car</span>
                                                             <div className="flex gap-1.5 relative">
                                                                 <div className="flex-1 relative">
-                                                                    <input placeholder="Brand" value={car.wantedCar?.brandName || ''} onChange={e => { const cd = [...editData.carDetails]; cd[idx] = { ...cd[idx], wantedCar: { ...cd[idx].wantedCar, brandName: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`wb${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
+                                                                    <input placeholder="Brand" value={car.wantedCar?.brandName || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], wantedCar: { ...(cd[idx].wantedCar || {brandName:'', modelName:'', fuelType:'', kmDriven:''}), brandName: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`wb${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
                                                                     {editFocus === `wb${idx}` && availableBrandNames.filter(b => !car.wantedCar?.brandName || b.toLowerCase().includes((car.wantedCar?.brandName || '').toLowerCase())).length > 0 && (
                                                                         <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
                                                                             {availableBrandNames.filter(b => !car.wantedCar?.brandName || b.toLowerCase().includes((car.wantedCar?.brandName || '').toLowerCase())).map(b => (
-                                                                                <button key={b} type="button" onMouseDown={() => { const cd = [...editData.carDetails]; cd[idx] = { ...cd[idx], wantedCar: { ...cd[idx].wantedCar, brandName: b } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{b}</button>
+                                                                                <button key={b} type="button" onMouseDown={() => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], wantedCar: { ...(cd[idx].wantedCar || {brandName:'', modelName:'', fuelType:'', kmDriven:''}), brandName: b } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{b}</button>
                                                                             ))}
                                                                         </div>
                                                                     )}
                                                                 </div>
                                                                 <div className="flex-1 relative">
-                                                                    <input placeholder="Model" value={car.wantedCar?.modelName || ''} onChange={e => { const cd = [...editData.carDetails]; cd[idx] = { ...cd[idx], wantedCar: { ...cd[idx].wantedCar, modelName: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`wm${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
+                                                                    <input placeholder="Model" value={car.wantedCar?.modelName || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], wantedCar: { ...(cd[idx].wantedCar || {brandName:'', modelName:'', fuelType:'', kmDriven:''}), modelName: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`wm${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
                                                                     {editFocus === `wm${idx}` && availableModelNames.filter(m => !car.wantedCar?.modelName || m.toLowerCase().includes((car.wantedCar?.modelName || '').toLowerCase())).length > 0 && (
                                                                         <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
                                                                             {availableModelNames.filter(m => !car.wantedCar?.modelName || m.toLowerCase().includes((car.wantedCar?.modelName || '').toLowerCase())).map(m => (
-                                                                                <button key={m} type="button" onMouseDown={() => { const cd = [...editData.carDetails]; cd[idx] = { ...cd[idx], wantedCar: { ...cd[idx].wantedCar, modelName: m } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{m}</button>
+                                                                                <button key={m} type="button" onMouseDown={() => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], wantedCar: { ...(cd[idx].wantedCar || {brandName:'', modelName:'', fuelType:'', kmDriven:''}), modelName: m } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{m}</button>
                                                                             ))}
                                                                         </div>
                                                                     )}
@@ -1245,29 +1246,29 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                                             <span className="text-[9px] font-bold text-gray-400 uppercase">Owned Car</span>
                                                             <div className="flex gap-1.5 relative">
                                                                 <div className="flex-1 relative">
-                                                                    <input placeholder="Brand" value={car.ownedCar?.brandName || ''} onChange={e => { const cd = [...editData.carDetails]; cd[idx] = { ...cd[idx], ownedCar: { ...cd[idx].ownedCar, brandName: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`ob${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
+                                                                    <input placeholder="Brand" value={car.ownedCar?.brandName || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || {brandName:'', modelName:'', fuelType:'', kmDriven:''}), brandName: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`ob${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
                                                                     {editFocus === `ob${idx}` && availableBrandNames.filter(b => !car.ownedCar?.brandName || b.toLowerCase().includes((car.ownedCar?.brandName || '').toLowerCase())).length > 0 && (
                                                                         <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
                                                                             {availableBrandNames.filter(b => !car.ownedCar?.brandName || b.toLowerCase().includes((car.ownedCar?.brandName || '').toLowerCase())).map(b => (
-                                                                                <button key={b} type="button" onMouseDown={() => { const cd = [...editData.carDetails]; cd[idx] = { ...cd[idx], ownedCar: { ...cd[idx].ownedCar, brandName: b } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{b}</button>
+                                                                                <button key={b} type="button" onMouseDown={() => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || {brandName:'', modelName:'', fuelType:'', kmDriven:''}), brandName: b } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{b}</button>
                                                                             ))}
                                                                         </div>
                                                                     )}
                                                                 </div>
                                                                 <div className="flex-1 relative">
-                                                                    <input placeholder="Model" value={car.ownedCar?.modelName || ''} onChange={e => { const cd = [...editData.carDetails]; cd[idx] = { ...cd[idx], ownedCar: { ...cd[idx].ownedCar, modelName: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`om${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
+                                                                    <input placeholder="Model" value={car.ownedCar?.modelName || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || {brandName:'', modelName:'', fuelType:'', kmDriven:''}), modelName: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`om${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
                                                                     {editFocus === `om${idx}` && availableModelNames.filter(m => !car.ownedCar?.modelName || m.toLowerCase().includes((car.ownedCar?.modelName || '').toLowerCase())).length > 0 && (
                                                                         <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
                                                                             {availableModelNames.filter(m => !car.ownedCar?.modelName || m.toLowerCase().includes((car.ownedCar?.modelName || '').toLowerCase())).map(m => (
-                                                                                <button key={m} type="button" onMouseDown={() => { const cd = [...editData.carDetails]; cd[idx] = { ...cd[idx], ownedCar: { ...cd[idx].ownedCar, modelName: m } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{m}</button>
+                                                                                <button key={m} type="button" onMouseDown={() => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || {brandName:'', modelName:'', fuelType:'', kmDriven:''}), modelName: m } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{m}</button>
                                                                             ))}
                                                                         </div>
                                                                     )}
                                                                 </div>
                                                             </div>
                                                             <div className="flex gap-1.5">
-                                                                <input placeholder="Year" value={car.ownedCar?.year || ''} onChange={e => { const cd = [...editData.carDetails]; cd[idx] = { ...cd[idx], ownedCar: { ...cd[idx].ownedCar, year: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="flex-1 rounded-md border border-gray-200 px-2 py-1 text-xs" />
-                                                                <input placeholder="KM" value={car.ownedCar?.kmDriven || ''} onChange={e => { const cd = [...editData.carDetails]; cd[idx] = { ...cd[idx], ownedCar: { ...cd[idx].ownedCar, kmDriven: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="flex-1 rounded-md border border-gray-200 px-2 py-1 text-xs" />
+                                                                <input placeholder="Year" value={car.ownedCar?.year || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || {brandName:'', modelName:'', fuelType:'', kmDriven:''}), year: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="flex-1 rounded-md border border-gray-200 px-2 py-1 text-xs" />
+                                                                <input placeholder="KM" value={car.ownedCar?.kmDriven || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || {brandName:'', modelName:'', fuelType:'', kmDriven:''}), kmDriven: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="flex-1 rounded-md border border-gray-200 px-2 py-1 text-xs" />
                                                             </div>
                                                         </div>
                                                     )}

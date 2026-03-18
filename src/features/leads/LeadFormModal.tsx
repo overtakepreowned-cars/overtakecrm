@@ -143,8 +143,8 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
             setFormData({
                 ...initialData,
                 carDetails: normalizedCarDetails,
-                assignedTo: typeof initialData.assignedTo === 'object' ? (initialData.assignedTo as any)._id : initialData.assignedTo
-            });
+                assignedTo: typeof initialData.assignedTo === 'object' ? (initialData.assignedTo as { _id: string })._id : initialData.assignedTo
+            } as any);
         }
     }, [initialData]);
 
@@ -170,7 +170,8 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
     };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-        let { name, value } = e.target;
+        const { name } = e.target;
+        let { value } = e.target;
 
         // Restrict phone to digits only
         if (name === 'phone') {
@@ -241,7 +242,7 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
 
         if (initialData) {
             // Check if it's an API Lead based on the flag we set in context
-            if ((initialData as any).isApiLead) {
+            if ((initialData as Lead & { isApiLead?: boolean }).isApiLead) {
                 updateApiLead(initialData._id!, finalData);
             } else {
                 updateLead(initialData._id!, finalData);

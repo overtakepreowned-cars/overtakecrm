@@ -31,7 +31,7 @@ export interface CarDetail {
     wantedCar?: VehicleInfo;
     ownedCar?: VehicleInfo;
 
-    additionalReqs: string;
+    additionalReqs?: string;
     intent: 'buying' | 'selling' | 'exchange';
 }
 
@@ -59,7 +59,8 @@ export interface Lead {
     phone: string;
     place: string;
     designation: string;
-    leadOrigin: 'WhatsApp' | 'Insta' | 'FB' | 'Walk-in' | 'Tele' | 'Referral' | 'Web' | 'OLX' | 'Other';
+    leadOrigin: string; // Keep it simple to avoid enum hell between API and UI
+
     enquiredVehicle: string;
     leadType: 'hot' | 'warm' | 'cold';
     status: 'new' | 'contacted' | 'sold' | 'deal_closed';
@@ -110,4 +111,13 @@ export interface LeadFilter {
     kmDrivenOp?: 'eq' | 'gt' | 'lt';
     amountValue?: string;
     amountOp?: 'eq' | 'gt' | 'lt';
+}
+export interface ApiLeadEditData {
+    name?: string;
+    phone?: string;
+    place?: string;
+    designation?: string;
+    leadOrigin?: string;
+    assignedTo?: string;
+    carDetails?: CarDetail[];
 }
