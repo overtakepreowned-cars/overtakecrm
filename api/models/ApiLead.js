@@ -69,7 +69,8 @@ const apiLeadSchema = new mongoose.Schema({
         enum: ['advance payment', 'full payment', ''],
         lowercase: true,
         default: ''
-    }
+    },
+    existingInCrm: { type: Boolean, default: false }
 }, { timestamps: true });
 
 export default mongoose.model('ApiLead', apiLeadSchema);

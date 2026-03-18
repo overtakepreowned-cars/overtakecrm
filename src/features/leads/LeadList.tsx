@@ -1,9 +1,9 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLeads } from '../../context/LeadsContext';
-import { Search, Filter, X, Briefcase, Bookmark, MoreHorizontal, Trash2, UserPlus, CheckCircle2, Phone, Car, Edit3, Save, User } from 'lucide-react';
+import { Search, Filter, X, Briefcase, Bookmark, MoreHorizontal, Trash2, UserPlus, CheckCircle2, Phone, Car, Edit3, Save, User, AlertTriangle } from 'lucide-react';
 import { isSameDay, parseISO, format } from 'date-fns';
-import { LeadFilter } from '../../types';
+import { LeadFilter, Lead, CarDetail } from '../../types';
 import { TagInput } from '../../components/TagInput';
 import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
 
@@ -61,7 +61,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
 
     // Inline edit state for API lead cards
     const [editingApiLeadId, setEditingApiLeadId] = useState<string | null>(null);
-    const [editData, setEditData] = useState<Record<string, any>>({});
+    const [editData, setEditData] = useState<Partial<Lead>>({});
     const [editFocus, setEditFocus] = useState<string | null>(null);
 
     // Delete Modal State
@@ -79,7 +79,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
 
     const closeDeleteModal = () => setDeleteModal(prev => ({ ...prev, isOpen: false }));
 
-    const startEditApiLead = (lead: any) => {
+    const startEditApiLead = (lead: Lead) => {
         setEditingApiLeadId(lead._id);
         setEditData({
             name: lead.name || '',
@@ -88,7 +88,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
             designation: lead.designation || '',
             leadOrigin: lead.leadOrigin || '',
             assignedTo: typeof lead.assignedTo === 'object' ? lead.assignedTo?._id || '' : lead.assignedTo || '',
-            carDetails: lead.carDetails?.map((c: any) => ({
+            carDetails: lead.carDetails?.map((c: CarDetail) => ({
                 intent: c.intent || 'buying',
                 wantedCar: { brandName: c.wantedCar?.brandName || '', modelName: c.wantedCar?.modelName || '' },
                 ownedCar: { brandName: c.ownedCar?.brandName || '', modelName: c.ownedCar?.modelName || '', year: c.ownedCar?.year || '', kmDriven: c.ownedCar?.kmDriven || '' },
@@ -741,19 +741,23 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                 >
                                     <Trash2 size={16} /> Delete
                                 </button>
-                                {currentMode === 'apileads' && (
-                                    <button
-                                        onClick={async () => {
-                                            if (window.confirm(`Approve and move ${selectedIds.length} leads to CRM?`)) {
-                                                await Promise.all(selectedIds.map(id => approveApiLead(id)));
-                                                setSelectedIds([]);
-                                            }
-                                        }}
-                                        className="flex items-center gap-2 px-3 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-sm font-bold hover:bg-emerald-100 transition-all border border-emerald-200"
-                                    >
-                                        <CheckCircle2 size={16} /> Add to CRM
-                                    </button>
-                                )}
+                                 {currentMode === 'apileads' && (
+                                     <button
+                                         onClick={async () => {
+                                             const hasExisting = selectedIds.some(id => apiLeads.find(l => l._id === id)?.existingInCrm);
+                                             const msg = hasExisting
+                                                 ? `Process ${selectedIds.length} lead(s)? Returning customers will have their data merged into existing contacts.`
+                                                 : `Approve and move ${selectedIds.length} leads to CRM?`;
+                                             if (window.confirm(msg)) {
+                                                 await Promise.all(selectedIds.map(id => approveApiLead(id)));
+                                                 setSelectedIds([]);
+                                             }
+                                         }}
+                                         className="flex items-center gap-2 px-3 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-sm font-bold hover:bg-emerald-100 transition-all border border-emerald-200"
+                                     >
+                                         <CheckCircle2 size={16} /> Add to CRM
+                                     </button>
+                                 )}
                             </div>
                         ) : (
                             hasActiveFilters && currentMode !== 'apileads' && (
@@ -1115,23 +1119,32 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
             {currentMode === 'apileads' ? (
                 <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-start bg-gray-50/30 overflow-y-auto max-h-[calc(100vh-350px)]">
                     {paginatedLeads.map(lead => {
-                        const isEditing = editingApiLeadId === lead._id;
-                        return (
-                        <div key={lead._id} className={`bg-white rounded-xl border shadow-sm p-5 hover:shadow-md transition-shadow flex flex-col gap-4 h-fit relative ${isEditing ? 'border-indigo-300 ring-2 ring-indigo-100' : 'border-gray-200'}`}>
-                            <div className="absolute top-4 right-4 flex items-center gap-3">
-                                <span className="text-[10px] font-bold text-gray-300">#{(currentPage - 1) * pageSize + paginatedLeads.indexOf(lead) + 1}</span>
-                                {!isEditing && (
-                                    <button onClick={() => startEditApiLead(lead)} className="p-1 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-all" title="Edit">
-                                        <Edit3 size={14} />
-                                    </button>
-                                )}
-                                <input
-                                    type="checkbox"
-                                    checked={selectedIds.includes(lead._id!)}
-                                    onChange={e => handleSelectLead(lead._id!, e.target.checked)}
-                                    className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                />
-                            </div>
+                         const isEditing = editingApiLeadId === lead._id;
+                         const isExisting = lead.existingInCrm === true;
+                         return (
+                         <div key={lead._id} className={`bg-white rounded-xl border shadow-sm p-5 hover:shadow-md transition-shadow flex flex-col gap-4 h-fit relative ${isEditing ? 'border-indigo-300 ring-2 ring-indigo-100' : isExisting ? 'border-amber-200 ring-1 ring-amber-50' : 'border-gray-200'}`}>
+                             <div className="absolute top-4 right-4 flex items-center gap-3">
+                                 <span className="text-[10px] font-bold text-gray-300">#{(currentPage - 1) * pageSize + paginatedLeads.indexOf(lead) + 1}</span>
+                                 {!isEditing && (
+                                     <button onClick={() => startEditApiLead(lead)} className="p-1 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-all" title="Edit">
+                                         <Edit3 size={14} />
+                                     </button>
+                                 )}
+                                 <input
+                                     type="checkbox"
+                                     checked={selectedIds.includes(lead._id!)}
+                                     onChange={e => handleSelectLead(lead._id!, e.target.checked)}
+                                     className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                 />
+                             </div>
+
+                             {/* Existing in CRM badge */}
+                             {isExisting && !isEditing && (
+                                 <div className="absolute top-4 left-4 flex items-center gap-1 px-2 py-0.5 bg-amber-50 border border-amber-200 rounded-full">
+                                     <AlertTriangle size={10} className="text-amber-500" />
+                                     <span className="text-[10px] font-bold text-amber-600">Existing in CRM</span>
+                                 </div>
+                             )}
 
                             {isEditing ? (
                                 /* ─── EDIT MODE ─── */
@@ -1195,7 +1208,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                     {editData.carDetails?.length > 0 && (
                                         <div className="flex flex-col gap-2 mt-1">
                                             <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><Car size={10}/> Vehicles</span>
-                                            {editData.carDetails.map((car: any, idx: number) => (
+                                            {editData.carDetails.map((car: CarDetail, idx: number) => (
                                                 <div key={idx} className="p-3 rounded-lg border border-indigo-100 bg-indigo-50/20 flex flex-col gap-2">
                                                     <select value={car.intent} onChange={e => { const cd = [...editData.carDetails]; cd[idx] = { ...cd[idx], intent: e.target.value }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs">
                                                         <option value="buying">Buying</option><option value="selling">Selling</option><option value="exchange">Exchange</option>
@@ -1272,7 +1285,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                             ) : (
                                 /* ─── VIEW MODE ─── */
                                 <>
-                                    <div className="flex flex-col gap-1 pr-8">
+                                     <div className={`flex flex-col gap-1 pr-8 ${isExisting ? 'mt-6' : ''}`}>
                                         <button
                                             onClick={() => navigate(`/contact/${lead._id}`)}
                                             className="font-bold text-lg text-gray-900 hover:text-indigo-600 text-left leading-tight"
@@ -1339,33 +1352,51 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                     )}
 
                                     <div className="mt-auto pt-4 border-t border-gray-100 flex items-center gap-2">
-                                        <button
-                                            onClick={() => startEditApiLead(lead)}
-                                            className="px-3 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100 transition-all font-bold text-xs flex items-center gap-1.5 border border-gray-200"
-                                        >
-                                            <Edit3 size={14}/> Edit
-                                        </button>
-                                        <button 
-                                            onClick={() => {
-                                                if (window.confirm('Delete this pending lead?')) {
-                                                    deleteApiLead(lead._id!);
-                                                }
-                                            }}
-                                            className="px-3 py-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 transition-all font-bold text-xs"
-                                        >
-                                            Delete
-                                        </button>
-                                        <button 
-                                            onClick={() => {
-                                                if (window.confirm('Approve this lead and add to CRM?')) {
-                                                    approveApiLead(lead._id!);
-                                                }
-                                            }}
-                                            className="flex-1 px-3 py-2 bg-emerald-50 text-emerald-600 text-xs font-bold rounded-lg hover:bg-emerald-100 transition-all border border-emerald-100 flex items-center justify-center gap-1.5 shadow-sm"
-                                        >
-                                            <CheckCircle2 size={16}/> Add to CRM
-                                        </button>
-                                    </div>
+                                        {isExisting && (
+                                             <div className="w-full mb-2 px-2.5 py-1.5 bg-amber-50 border border-amber-100 rounded-lg text-[10px] text-amber-700 font-medium leading-snug">
+                                                 New car details &amp; notes will be merged into the existing contact.
+                                             </div>
+                                         )}
+                                         <div className="flex items-center gap-2 w-full">
+                                         <button
+                                             onClick={() => startEditApiLead(lead)}
+                                             className="px-3 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100 transition-all font-bold text-xs flex items-center gap-1.5 border border-gray-200"
+                                         >
+                                             <Edit3 size={14}/> Edit
+                                         </button>
+                                         <button 
+                                             onClick={() => {
+                                                 if (window.confirm('Delete this pending lead?')) {
+                                                     deleteApiLead(lead._id!);
+                                                 }
+                                             }}
+                                             className="px-3 py-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 transition-all font-bold text-xs"
+                                         >
+                                             Delete
+                                         </button>
+                                         <button 
+                                             onClick={() => {
+                                                 const msg = isExisting
+                                                     ? 'This contact already exists in CRM. New car details and notes will be merged into them. Continue?'
+                                                     : 'Approve this lead and add to CRM?';
+                                                 if (window.confirm(msg)) {
+                                                     approveApiLead(lead._id!);
+                                                 }
+                                             }}
+                                             className={`flex-1 px-3 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-sm ${
+                                                 isExisting
+                                                     ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
+                                                     : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-100'
+                                             }`}
+                                         >
+                                             {isExisting ? (
+                                                 <><AlertTriangle size={14}/> Update in CRM</>
+                                             ) : (
+                                                 <><CheckCircle2 size={16}/> Add to CRM</>
+                                             )}
+                                         </button>
+                                         </div>
+                                     </div>
                                 </>
                             )}
                         </div>

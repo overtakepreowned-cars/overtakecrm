@@ -75,6 +75,9 @@ export interface Lead {
     paymentStatus?: 'Advance Payment' | 'Full Payment' | '';
     createdAt: string;
     updatedAt: string;
+    // Api lead fields
+    isApiLead?: boolean;
+    existingInCrm?: boolean;
 }
 
 export interface SmartList {

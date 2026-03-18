@@ -318,27 +318,63 @@ router.post('/api-leads/:id/approve', async (req, res, next) => {
     try {
         const leadId = req.params.id;
         const stagedLead = await ApiLead.findById(leadId).lean();
-        
+
         if (!stagedLead) return res.status(404).json({ message: 'API Lead not found' });
 
-        // Check if phone already exists in MAIN leads collection
-        const existingInCRM = await Lead.findOne({ phone: stagedLead.phone.trim() });
-        if (existingInCRM) {
-            return res.status(400).json({ message: `A contact with phone ${stagedLead.phone} already exists in the CRM.` });
+        if (stagedLead.existingInCrm) {
+            // ── MERGE PATH ── Phone already in main CRM; merge new data in
+            const existingLead = await Lead.findOne({ phone: stagedLead.phone.trim() });
+            if (!existingLead) {
+                // Edge case: was flagged existing but lead was deleted since — fall through to create
+                stagedLead.existingInCrm = false;
+            } else {
+                // Append new car details (avoid exact duplicates by intent+brand+model)
+                const incomingCars = stagedLead.carDetails || [];
+                for (const incoming of incomingCars) {
+                    const isDuplicate = existingLead.carDetails.some(existing =>
+                        existing.intent === incoming.intent &&
+                        (existing.wantedCar?.brandName || '') === (incoming.wantedCar?.brandName || '') &&
+                        (existing.wantedCar?.modelName || '') === (incoming.wantedCar?.modelName || '') &&
+                        (existing.ownedCar?.brandName || '') === (incoming.ownedCar?.brandName || '') &&
+                        (existing.ownedCar?.modelName || '') === (incoming.ownedCar?.modelName || '')
+                    );
+                    if (!isDuplicate) {
+                        existingLead.carDetails.push(incoming);
+                    }
+                }
+
+                // Append new notes (avoid exact duplicates)
+                const existingNotes = new Set(existingLead.notes);
+                for (const note of (stagedLead.notes || [])) {
+                    if (!existingNotes.has(note)) {
+                        existingLead.notes.push(note);
+                    }
+                }
+
+                await existingLead.save();
+                await ApiLead.findByIdAndDelete(leadId);
+
+                const populated = await Lead.findById(existingLead._id)
+                    .populate('assignedTo', 'username')
+                    .populate('assignmentHistory.userId', 'username');
+                return res.json({ merged: true, lead: populated });
+            }
         }
 
-        // Move to Lead
-        delete stagedLead._id; // Remove the old ID to let MongoDB generate a fresh one for the CRM Lead
-        delete stagedLead.createdAt;
-        delete stagedLead.updatedAt;
+        // ── CREATE PATH ── New phone; move ApiLead → Lead
+        const { _id, createdAt, updatedAt, existingInCrm, ...leadData } = stagedLead;
 
-        const newLead = new Lead(stagedLead);
+        // Final duplicate check (race condition guard)
+        const duplicate = await Lead.findOne({ phone: stagedLead.phone.trim() });
+        if (duplicate) {
+            return res.status(409).json({ message: `A contact with phone ${stagedLead.phone} already exists in the CRM.` });
+        }
+
+        const newLead = new Lead(leadData);
         await newLead.save();
-
-        // Delete from ApiLead collection now that it is migrated
         await ApiLead.findByIdAndDelete(leadId);
 
-        res.json(newLead);
+        res.json({ merged: false, lead: newLead });
     } catch (error) { next(error); }
 });
 
@@ -358,16 +394,15 @@ router.post('/webhooks/leads', async (req, res, next) => {
             return res.status(400).json({ message: 'Name and phone inside leadinfo are required.' });
         }
 
-        // Check if phone already exists in main CRM or ApiLeads
+        // Reject only if there's already a pending API lead with same phone (avoid duplicate staged leads)
         const existingApiLead = await ApiLead.findOne({ phone: phone.trim() });
         if (existingApiLead) {
-            return res.status(409).json({ message: 'An API lead with this phone number is already pending.' });
+            return res.status(409).json({ message: 'An API lead with this phone number is already pending review.' });
         }
-        
+
+        // Check if phone already exists in main CRM — flag it rather than reject it
         const existingMainLead = await Lead.findOne({ phone: phone.trim() });
-        if (existingMainLead) {
-            return res.status(409).json({ message: 'A lead with this phone number already exists in the main CRM.' });
-        }
+        const existingInCrm = !!existingMainLead;
 
         // Validate leadOrigin against Mongoose Enum (now lowercase)
         const validOrigins = ['whatsapp', 'insta', 'fb', 'walk-in', 'tele', 'referral', 'web', 'olx', 'other'];
@@ -414,13 +449,14 @@ router.post('/webhooks/leads', async (req, res, next) => {
             notesArray.push(custom.Note);
         }
 
-        // Construct final mapping
+        // Construct final mapping — include existingInCrm flag
         const leadData = {
            name: name.trim(),
            phone: phone.trim(),
            leadOrigin: finalOrigin,
            notes: notesArray,
-           carDetails: carDetailsArray
+           carDetails: carDetailsArray,
+           existingInCrm
         };
 
         const apiLead = new ApiLead(leadData);
@@ -428,12 +464,15 @@ router.post('/webhooks/leads', async (req, res, next) => {
 
         res.status(201).json({
             status: 'success',
-            message: 'Lead successfully captured and staged via webhook.',
+            message: existingInCrm
+                ? 'Lead captured. This phone already exists in CRM — will merge on approval.'
+                : 'Lead successfully captured and staged via webhook.',
             data: {
                 id: apiLead._id,
                 name: apiLead.name,
                 phone: apiLead.phone,
                 leadOrigin: apiLead.leadOrigin,
+                existingInCrm,
                 vehiclesEnquired: apiLead.carDetails.length
             }
         });

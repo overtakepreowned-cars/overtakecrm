@@ -191,10 +191,11 @@ export function LeadsProvider({ children }: { children: React.ReactNode }) {
         try {
             const res = await fetch(`/api/api-leads/${id}/approve`, { method: 'POST' });
             if (res.ok) {
-                await fetchData(); // Fetches updated leads and api-leads
+                await fetchData(); // Refresh both leads and api-leads lists
             } else {
                 const error = await res.json();
                 console.error('Failed to approve API lead', error);
+                alert(error.message || 'Failed to add to CRM');
             }
         } catch (err) { console.error('Error approving api lead', err); }
     };
