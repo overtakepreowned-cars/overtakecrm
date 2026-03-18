@@ -134,9 +134,8 @@ export function AdminLogin() {
                         </button>
                     </form>
 
-                    <div className="mt-12 text-center text-gray-500 text-xs font-medium border-t border-gray-100 pt-8 flex flex-col gap-2">
-                        <p>Admin: admin@overtkae / admin@ overtake</p>
-                        <p>Sales: salesrep@overtake / salesrep@overtake</p>
+                    <div className="mt-12 text-center text-gray-400 text-xs font-medium border-t border-gray-100 pt-8">
+                        <p>Contact your administrator for login credentials.</p>
                     </div>
                 </div>
             </div>

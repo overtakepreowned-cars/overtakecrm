@@ -9,9 +9,14 @@ export const login = async (req, res, next) => {
         
         let targetRole = '';
         
-        if (username === 'admin@overtkae' && password === 'admin@ overtake') {
+        const adminUser = process.env.ADMIN_USERNAME;
+        const adminPass = process.env.ADMIN_PASSWORD;
+        const salesUser = process.env.SALES_USERNAME;
+        const salesPass = process.env.SALES_PASSWORD;
+
+        if (username === adminUser && password === adminPass) {
             targetRole = 'admin';
-        } else if (username === 'salesrep@overtake' && password === 'salesrep@overtake') {
+        } else if (username === salesUser && password === salesPass) {
             targetRole = 'sales';
         } else {
             return res.status(401).json({ message: 'Invalid credentials' });
