@@ -36,10 +36,11 @@ export function AdminLogin() {
                     <img
                         src={logo}
                         alt="Overtake Logo"
-                        className="w-full max-w-[350px] h-auto object-contain mb-6 transform hover:scale-105 transition-transform duration-500"
+                        className="w-full max-w-[350px] h-auto object-contain mb-2 transform hover:scale-105 transition-transform duration-500"
                     />
+                    <p className="text-gray-400 text-sm font-medium tracking-widest uppercase mt-2 text-center">PRE OWNED PREMIUM LUXURY CARS</p>
                     <p className="text-gray-400 text-lg font-medium tracking-widest uppercase mt-4">CRM</p>
-                    <span className="text-gray-500 text-sm font-bold mt-1">v1.0</span>
+                    <span className="text-[10px] text-gray-500 font-bold mt-1">v1.0</span>
                 </div>
             </div>
 
@@ -51,6 +52,7 @@ export function AdminLogin() {
                     <div className="flex lg:hidden flex-col items-center justify-center gap-4 mb-12">
                         <div className="bg-[#1B1B19] p-6 rounded-2xl w-full flex flex-col items-center justify-center shadow-lg border border-gray-800">
                             <img src={logo} alt="Overtake Logo" className="h-10 w-auto object-contain" />
+                            <span className="text-[9px] text-gray-400 font-medium tracking-widest uppercase mt-3 text-center leading-tight">PRE OWNED PREMIUM LUXURY CARS</span>
                             <span className="text-[10px] text-gray-500 font-bold mt-2">v1.0</span>
                         </div>
                     </div>

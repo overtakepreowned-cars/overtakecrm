@@ -377,11 +377,17 @@ router.post('/webhooks/leads', async (req, res, next) => {
         }
 
         const name = leadinfo.first_name || leadinfo.name;
-        // Strip non-numeric chars for phone match checking
-        let phone = leadinfo.whatsapp_phone ? leadinfo.whatsapp_phone.replace(/\D/g, '') : (leadinfo.phone ? leadinfo.phone.replace(/\D/g, '') : null);
+        let rawPhone = leadinfo.whatsapp_phone ? String(leadinfo.whatsapp_phone).trim() : (leadinfo.phone ? String(leadinfo.phone).trim() : '');
+        let phone = null;
         
-        if (phone && phone.startsWith('91') && phone.length > 10) {
-            phone = phone.substring(2);
+        if (rawPhone) {
+            if (rawPhone.startsWith('+91')) {
+                rawPhone = rawPhone.substring(3);
+            } else if (rawPhone.startsWith('91') && rawPhone.length > 10) {
+                rawPhone = rawPhone.substring(2);
+            }
+            phone = rawPhone.replace(/\D/g, '');
+            if (!phone) phone = null;
         }
 
         if (!name || !phone) {

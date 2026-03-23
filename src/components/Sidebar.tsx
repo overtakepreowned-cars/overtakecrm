@@ -44,6 +44,7 @@ export function Sidebar({ isOpen, setSidebarOpen }: SidebarProps) {
                     alt="Overtake Logo"
                     className="h-8 w-auto object-contain"
                 />
+                <span className="text-[8px] text-gray-400 font-medium tracking-widest uppercase mt-3 text-center leading-tight">PRE OWNED PREMIUM LUXURY CARS</span>
                 <span className="text-[10px] text-gray-500 font-bold mt-2">v1.0</span>
             </div>
 
