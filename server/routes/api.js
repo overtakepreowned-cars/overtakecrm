@@ -321,54 +321,44 @@ router.post('/api-leads/:id/approve', async (req, res, next) => {
 
         if (!stagedLead) return res.status(404).json({ message: 'API Lead not found' });
 
-        if (stagedLead.existingInCrm) {
-            // ── MERGE PATH ── Phone already in main CRM; merge new data in
-            const existingLead = await Lead.findOne({ phone: stagedLead.phone.trim() });
-            if (!existingLead) {
-                // Edge case: was flagged existing but lead was deleted since — fall through to create
-                stagedLead.existingInCrm = false;
-            } else {
-                // Append new car details (avoid exact duplicates by intent+brand+model)
-                const incomingCars = stagedLead.carDetails || [];
-                for (const incoming of incomingCars) {
-                    const isDuplicate = existingLead.carDetails.some(existing =>
-                        existing.intent === incoming.intent &&
-                        (existing.wantedCar?.brandName || '') === (incoming.wantedCar?.brandName || '') &&
-                        (existing.wantedCar?.modelName || '') === (incoming.wantedCar?.modelName || '') &&
-                        (existing.ownedCar?.brandName || '') === (incoming.ownedCar?.brandName || '') &&
-                        (existing.ownedCar?.modelName || '') === (incoming.ownedCar?.modelName || '')
-                    );
-                    if (!isDuplicate) {
-                        existingLead.carDetails.push(incoming);
-                    }
+        // ── MERGE PATH ── Phone already in main CRM; merge new data in
+        const existingLead = await Lead.findOne({ phone: stagedLead.phone.trim() });
+        
+        if (existingLead) {
+            // Append new car details (avoid exact duplicates by intent+brand+model)
+            const incomingCars = stagedLead.carDetails || [];
+            for (const incoming of incomingCars) {
+                const isDuplicate = existingLead.carDetails.some(existing =>
+                    existing.intent === incoming.intent &&
+                    (existing.wantedCar?.brandName || '') === (incoming.wantedCar?.brandName || '') &&
+                    (existing.wantedCar?.modelName || '') === (incoming.wantedCar?.modelName || '') &&
+                    (existing.ownedCar?.brandName || '') === (incoming.ownedCar?.brandName || '') &&
+                    (existing.ownedCar?.modelName || '') === (incoming.ownedCar?.modelName || '')
+                );
+                if (!isDuplicate) {
+                    existingLead.carDetails.push(incoming);
                 }
-
-                // Append new notes (avoid exact duplicates)
-                const existingNotes = new Set(existingLead.notes);
-                for (const note of (stagedLead.notes || [])) {
-                    if (!existingNotes.has(note)) {
-                        existingLead.notes.push(note);
-                    }
-                }
-
-                await existingLead.save();
-                await ApiLead.findByIdAndDelete(leadId);
-
-                const populated = await Lead.findById(existingLead._id)
-                    .populate('assignedTo', 'username')
-                    .populate('assignmentHistory.userId', 'username');
-                return res.json({ merged: true, lead: populated });
             }
+
+            // Append new notes (avoid exact duplicates)
+            const existingNotes = new Set(existingLead.notes);
+            for (const note of (stagedLead.notes || [])) {
+                if (!existingNotes.has(note)) {
+                    existingLead.notes.push(note);
+                }
+            }
+
+            await existingLead.save();
+            await ApiLead.findByIdAndDelete(leadId);
+
+            const populated = await Lead.findById(existingLead._id)
+                .populate('assignedTo', 'username')
+                .populate('assignmentHistory.userId', 'username');
+            return res.json({ merged: true, lead: populated });
         }
 
         // ── CREATE PATH ── New phone; move ApiLead → Lead
         const { _id, createdAt, updatedAt, existingInCrm, ...leadData } = stagedLead;
-
-        // Final duplicate check (race condition guard)
-        const duplicate = await Lead.findOne({ phone: stagedLead.phone.trim() });
-        if (duplicate) {
-            return res.status(409).json({ message: `A contact with phone ${stagedLead.phone} already exists in the CRM.` });
-        }
 
         const newLead = new Lead(leadData);
         await newLead.save();
@@ -392,12 +382,6 @@ router.post('/webhooks/leads', async (req, res, next) => {
         
         if (!name || !phone) {
             return res.status(400).json({ message: 'Name and phone inside leadinfo are required.' });
-        }
-
-        // Reject only if there's already a pending API lead with same phone (avoid duplicate staged leads)
-        const existingApiLead = await ApiLead.findOne({ phone: phone.trim() });
-        if (existingApiLead) {
-            return res.status(409).json({ message: 'An API lead with this phone number is already pending review.' });
         }
 
         // Check if phone already exists in main CRM — flag it rather than reject it
@@ -447,6 +431,49 @@ router.post('/webhooks/leads', async (req, res, next) => {
         const notesArray = [];
         if (custom.Note) {
             notesArray.push(custom.Note);
+        }
+
+        const existingApiLead = await ApiLead.findOne({ phone: phone.trim() });
+        if (existingApiLead) {
+            // Append incoming cars (avoid exact duplicates)
+            for (const incoming of carDetailsArray) {
+                const isDuplicate = existingApiLead.carDetails.some(existing =>
+                    existing.intent === incoming.intent &&
+                    (existing.wantedCar?.brandName || '') === (incoming.wantedCar?.brandName || '') &&
+                    (existing.wantedCar?.modelName || '') === (incoming.wantedCar?.modelName || '') &&
+                    (existing.ownedCar?.brandName || '') === (incoming.ownedCar?.brandName || '') &&
+                    (existing.ownedCar?.modelName || '') === (incoming.ownedCar?.modelName || '')
+                );
+                if (!isDuplicate) {
+                    existingApiLead.carDetails.push(incoming);
+                }
+            }
+
+            // Append notes
+            const existingNotes = new Set(existingApiLead.notes);
+            for (const note of notesArray) {
+                if (!existingNotes.has(note)) {
+                    existingApiLead.notes.push(note);
+                }
+            }
+
+            // Update existingInCrm flag in case it changed
+            existingApiLead.existingInCrm = existingInCrm;
+
+            await existingApiLead.save();
+
+            return res.status(200).json({
+                status: 'success',
+                message: 'API Lead updated with new details.',
+                data: {
+                    id: existingApiLead._id,
+                    name: existingApiLead.name,
+                    phone: existingApiLead.phone,
+                    leadOrigin: existingApiLead.leadOrigin,
+                    existingInCrm,
+                    vehiclesEnquired: existingApiLead.carDetails.length
+                }
+            });
         }
 
         // Construct final mapping — include existingInCrm flag

@@ -241,6 +241,7 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
         const finalData = { ...formData };
 
         if (initialData) {
+            if (!window.confirm('Are you sure you want to update this contact?')) return;
             // Check if it's an API Lead based on the flag we set in context
             if ((initialData as Lead & { isApiLead?: boolean }).isApiLead) {
                 updateApiLead(initialData._id!, finalData);

@@ -16,15 +16,8 @@ export const captureWebhookLead = async (req, res, next) => {
             return res.status(400).json({ message: 'Name and phone inside leadinfo are required.' });
         }
 
-        const existingApiLead = await ApiLead.findOne({ phone: phone.trim() });
-        if (existingApiLead) {
-            return res.status(409).json({ message: 'An API lead with this phone number is already pending.' });
-        }
-        
         const existingMainLead = await Lead.findOne({ phone: phone.trim() });
-        if (existingMainLead) {
-            return res.status(409).json({ message: 'A lead with this phone number already exists in the main CRM.' });
-        }
+        const existingInCrm = !!existingMainLead;
 
         const validOrigins = ['whatsapp', 'insta', 'fb', 'walk-in', 'tele', 'referral', 'web', 'olx', 'other'];
         let finalOrigin = (leadOrigin || leadinfo.leadOrigin || 'other').toLowerCase();
@@ -52,12 +45,52 @@ export const captureWebhookLead = async (req, res, next) => {
         const notesArray = [];
         if (custom.Note) notesArray.push(custom.Note);
 
+        const existingApiLead = await ApiLead.findOne({ phone: phone.trim() });
+        if (existingApiLead) {
+            for (const incoming of carDetailsArray) {
+                const isDuplicate = existingApiLead.carDetails.some(existing =>
+                    existing.intent === incoming.intent &&
+                    (existing.wantedCar?.brandName || '') === (incoming.wantedCar?.brandName || '') &&
+                    (existing.wantedCar?.modelName || '') === (incoming.wantedCar?.modelName || '') &&
+                    (existing.ownedCar?.brandName || '') === (incoming.ownedCar?.brandName || '') &&
+                    (existing.ownedCar?.modelName || '') === (incoming.ownedCar?.modelName || '')
+                );
+                if (!isDuplicate) {
+                    existingApiLead.carDetails.push(incoming);
+                }
+            }
+
+            const existingNotes = new Set(existingApiLead.notes);
+            for (const note of notesArray) {
+                if (!existingNotes.has(note)) {
+                    existingApiLead.notes.push(note);
+                }
+            }
+
+            existingApiLead.existingInCrm = existingInCrm;
+            await existingApiLead.save();
+
+            return res.status(200).json({
+                status: 'success',
+                message: 'API Lead updated with new details.',
+                data: {
+                    id: existingApiLead._id,
+                    name: existingApiLead.name,
+                    phone: existingApiLead.phone,
+                    leadOrigin: existingApiLead.leadOrigin,
+                    existingInCrm,
+                    vehiclesEnquired: existingApiLead.carDetails.length
+                }
+            });
+        }
+
         const leadData = {
            name: name.trim(),
            phone: phone.trim(),
            leadOrigin: finalOrigin,
            notes: notesArray,
-           carDetails: carDetailsArray
+           carDetails: carDetailsArray,
+           existingInCrm
         };
 
         const apiLead = new ApiLead(leadData);
@@ -65,12 +98,15 @@ export const captureWebhookLead = async (req, res, next) => {
 
         res.status(201).json({
             status: 'success',
-            message: 'Lead successfully captured and staged via webhook.',
+            message: existingInCrm
+                ? 'Lead captured. This phone already exists in CRM — will merge on approval.'
+                : 'Lead successfully captured and staged via webhook.',
             data: {
                 id: apiLead._id,
                 name: apiLead.name,
                 phone: apiLead.phone,
                 leadOrigin: apiLead.leadOrigin,
+                existingInCrm,
                 vehiclesEnquired: apiLead.carDetails.length
             }
         });

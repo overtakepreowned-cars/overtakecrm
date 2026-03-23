@@ -168,18 +168,47 @@ export const approveApiLead = async (req, res, next) => {
         if (!stagedLead) return res.status(404).json({ message: 'API Lead not found' });
 
         const existingInCRM = await Lead.findOne({ phone: stagedLead.phone.trim() });
+        
         if (existingInCRM) {
-            return res.status(400).json({ message: `A contact with phone ${stagedLead.phone} already exists in the CRM.` });
+            const incomingCars = stagedLead.carDetails || [];
+            for (const incoming of incomingCars) {
+                const isDuplicate = existingInCRM.carDetails.some(existing =>
+                    existing.intent === incoming.intent &&
+                    (existing.wantedCar?.brandName || '') === (incoming.wantedCar?.brandName || '') &&
+                    (existing.wantedCar?.modelName || '') === (incoming.wantedCar?.modelName || '') &&
+                    (existing.ownedCar?.brandName || '') === (incoming.ownedCar?.brandName || '') &&
+                    (existing.ownedCar?.modelName || '') === (incoming.ownedCar?.modelName || '')
+                );
+                if (!isDuplicate) {
+                    existingInCRM.carDetails.push(incoming);
+                }
+            }
+
+            const existingNotes = new Set(existingInCRM.notes);
+            for (const note of (stagedLead.notes || [])) {
+                if (!existingNotes.has(note)) {
+                    existingInCRM.notes.push(note);
+                }
+            }
+
+            await existingInCRM.save();
+            await ApiLead.findByIdAndDelete(req.params.id);
+
+            const populated = await Lead.findById(existingInCRM._id)
+                .populate('assignedTo', 'username')
+                .populate('assignmentHistory.userId', 'username');
+            return res.json({ merged: true, lead: populated });
         }
 
         const leadData = { ...stagedLead };
         delete leadData._id;
         delete leadData.createdAt;
         delete leadData.updatedAt;
+        delete leadData.existingInCrm;
 
         const newLead = new Lead(leadData);
         await newLead.save();
         await ApiLead.findByIdAndDelete(req.params.id);
-        res.json(newLead);
+        res.json({ merged: false, lead: newLead });
     } catch (error) { next(error); }
 };

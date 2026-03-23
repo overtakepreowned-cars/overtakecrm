@@ -809,7 +809,12 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                 {['new', 'contacted', 'sold', 'deal_closed'].map(s => (
                                     <button
                                         key={s}
-                                        onClick={async () => { await bulkUpdateLeads(selectedIds, { status: s as 'new' | 'contacted' | 'sold' | 'deal_closed' }); setSelectedIds([]); setShowBulkUpdatePanel(false); }}
+                                        onClick={async () => {
+                                            if (!window.confirm(`Are you sure you want to update the status of ${selectedIds.length} contact(s)?`)) return;
+                                            await bulkUpdateLeads(selectedIds, { status: s as 'new' | 'contacted' | 'sold' | 'deal_closed' });
+                                            setSelectedIds([]);
+                                            setShowBulkUpdatePanel(false);
+                                        }}
                                         className="px-3 py-1 bg-gray-50 hover:bg-indigo-600 hover:text-white rounded text-xs font-bold capitalize transition-all"
                                     >
                                         {s.replace('_', ' ')}
@@ -823,7 +828,12 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                 {['hot', 'warm', 'cold'].map(t => (
                                     <button
                                         key={t}
-                                        onClick={async () => { await bulkUpdateLeads(selectedIds, { leadType: t as 'hot' | 'warm' | 'cold' }); setSelectedIds([]); setShowBulkUpdatePanel(false); }}
+                                        onClick={async () => {
+                                            if (!window.confirm(`Are you sure you want to update the lead type of ${selectedIds.length} contact(s)?`)) return;
+                                            await bulkUpdateLeads(selectedIds, { leadType: t as 'hot' | 'warm' | 'cold' });
+                                            setSelectedIds([]);
+                                            setShowBulkUpdatePanel(false);
+                                        }}
                                         className="px-3 py-1 bg-gray-50 hover:bg-indigo-600 hover:text-white rounded text-xs font-bold capitalize transition-all"
                                     >
                                         {t}
@@ -860,12 +870,14 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                     <button
                                         disabled={bulkTags.length === 0}
                                         onClick={async () => {
+                                            if (!window.confirm(`Are you sure you want to ${bulkTagUpdateType} tags for ${selectedIds.length} contact(s)?`)) return;
                                             if (bulkTagUpdateType === 'add') {
                                                 await bulkUpdateLeads(selectedIds, undefined, bulkTags);
                                             } else {
                                                 await bulkUpdateLeads(selectedIds, undefined, undefined, bulkTags);
                                             }
                                             setBulkTags([]);
+                                            setBulkUpdateType(null);
                                             setSelectedIds([]);
                                             setShowBulkUpdatePanel(false);
                                         }}
@@ -885,7 +897,12 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                     onChange={async (e) => {
                                         const date = e.target.value;
                                         if (date) {
+                                            if (!window.confirm(`Are you sure you want to update the follow-up date for ${selectedIds.length} contact(s)?`)) {
+                                                e.target.value = '';
+                                                return;
+                                            }
                                             await bulkUpdateLeads(selectedIds, { followupDate: new Date(date).toISOString() });
+                                            setBulkUpdateType(null);
                                             setSelectedIds([]);
                                             setShowBulkUpdatePanel(false);
                                         }
@@ -1143,7 +1160,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                              {isExisting && !isEditing && (
                                  <div className="absolute top-4 left-4 flex items-center gap-1 px-2 py-0.5 bg-amber-50 border border-amber-200 rounded-full">
                                      <AlertTriangle size={10} className="text-amber-500" />
-                                     <span className="text-[10px] font-bold text-amber-600">Existing in CRM</span>
+                                     <span className="text-[10px] font-bold text-amber-600">Existing Lead</span>
                                  </div>
                              )}
 

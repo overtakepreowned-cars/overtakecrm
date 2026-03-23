@@ -4,7 +4,7 @@ import { isSameDay, parseISO } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 
 export function Dashboard() {
-    const { leads, users } = useLeads();
+    const { leads, apiLeads, users } = useLeads();
     const navigate = useNavigate();
 
     const today = new Date();
@@ -74,6 +74,21 @@ export function Dashboard() {
 
     return (
         <div className="flex flex-col gap-8 pb-12">
+            {apiLeads.length > 0 && (
+                <div className="flex items-center justify-between rounded-xl border border-indigo-100 bg-indigo-50 px-6 py-4 animate-pulse">
+                    <div className="flex items-center gap-3 text-indigo-700">
+                        <Zap size={20} className="fill-current" />
+                        <span className="font-bold text-sm">Automation Alert: You have {apiLeads.length} new automated lead(s) waiting for review!</span>
+                    </div>
+                    <button
+                        onClick={() => navigate('/contacts?mode=apileads')}
+                        className="text-xs font-bold uppercase tracking-wider text-indigo-600 hover:underline"
+                    >
+                        Review Now
+                    </button>
+                </div>
+            )}
+            
             {missedFollowups > 0 && (
                 <div className="flex items-center justify-between rounded-xl border border-red-100 bg-red-50 px-6 py-4 animate-pulse">
                     <div className="flex items-center gap-3 text-red-700">
