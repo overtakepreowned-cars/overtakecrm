@@ -378,8 +378,12 @@ router.post('/webhooks/leads', async (req, res, next) => {
 
         const name = leadinfo.first_name || leadinfo.name;
         // Strip non-numeric chars for phone match checking
-        const phone = leadinfo.whatsapp_phone ? leadinfo.whatsapp_phone.replace(/\D/g, '') : (leadinfo.phone ? leadinfo.phone.replace(/\D/g, '') : null);
+        let phone = leadinfo.whatsapp_phone ? leadinfo.whatsapp_phone.replace(/\D/g, '') : (leadinfo.phone ? leadinfo.phone.replace(/\D/g, '') : null);
         
+        if (phone && phone.startsWith('91') && phone.length > 10) {
+            phone = phone.substring(2);
+        }
+
         if (!name || !phone) {
             return res.status(400).json({ message: 'Name and phone inside leadinfo are required.' });
         }

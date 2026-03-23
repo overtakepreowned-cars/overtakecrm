@@ -42,7 +42,7 @@ const leadSchema = new mongoose.Schema({
         default: 'other'
     },
     enquiredVehicle: { type: String, lowercase: true },
-    leadType: { type: String, enum: ['hot', 'warm', 'cold'], default: 'cold' },
+    leadType: { type: String, enum: ['hot', 'warm', 'cold'], default: 'hot' },
     status: { type: String, enum: ['new', 'contacted', 'sold', 'deal_closed'], default: 'new' },
     notes: [{ type: String }],
     tags: [{ type: String, lowercase: true }],
