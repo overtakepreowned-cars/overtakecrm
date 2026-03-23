@@ -23,9 +23,15 @@ export const getLeadById = async (req, res, next) => {
 
 export const createLead = async (req, res, next) => {
     try {
-        const { phone } = req.body;
+        let { phone } = req.body;
         if (phone) {
-            const existingLead = await Lead.findOne({ phone: phone.trim() });
+            let rawPhone = String(phone).trim();
+            if (rawPhone.startsWith('+91')) rawPhone = rawPhone.substring(3);
+            else if (rawPhone.startsWith('91') && rawPhone.length > 10) rawPhone = rawPhone.substring(2);
+            phone = rawPhone.replace(/\D/g, '');
+            req.body.phone = phone;
+
+            const existingLead = await Lead.findOne({ phone: phone });
             if (existingLead) {
                 return res.status(400).json({ message: `A contact with phone ${phone} already exists.` });
             }
@@ -48,8 +54,13 @@ export const updateLead = async (req, res, next) => {
         const updates = req.body;
 
         if (updates.phone) {
+            let rawPhone = String(updates.phone).trim();
+            if (rawPhone.startsWith('+91')) rawPhone = rawPhone.substring(3);
+            else if (rawPhone.startsWith('91') && rawPhone.length > 10) rawPhone = rawPhone.substring(2);
+            updates.phone = rawPhone.replace(/\D/g, '');
+
             const existingWithPhone = await Lead.findOne({
-                phone: updates.phone.trim(),
+                phone: updates.phone,
                 _id: { $ne: leadId }
             });
             if (existingWithPhone) {
@@ -141,8 +152,13 @@ export const updateApiLead = async (req, res, next) => {
         const leadId = req.params.id;
         const updates = req.body;
         if (updates.phone) {
+            let rawPhone = String(updates.phone).trim();
+            if (rawPhone.startsWith('+91')) rawPhone = rawPhone.substring(3);
+            else if (rawPhone.startsWith('91') && rawPhone.length > 10) rawPhone = rawPhone.substring(2);
+            updates.phone = rawPhone.replace(/\D/g, '');
+
             const existingWithPhone = await ApiLead.findOne({
-                phone: updates.phone.trim(),
+                phone: updates.phone,
                 _id: { $ne: leadId }
             });
             if (existingWithPhone) {
