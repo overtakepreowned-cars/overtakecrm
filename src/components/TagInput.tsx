@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { X, Plus } from 'lucide-react';
+import { clsx } from 'clsx';
 
 interface TagInputProps {
     selectedTags: string[];
@@ -7,9 +8,10 @@ interface TagInputProps {
     availableTags: string[];
     placeholder?: string;
     className?: string;
+    isDark?: boolean;
 }
 
-export function TagInput({ selectedTags, onTagsChange, availableTags, placeholder = "Add tags...", className = "" }: TagInputProps) {
+export function TagInput({ selectedTags, onTagsChange, availableTags, placeholder = "Add tags...", className = "", isDark = false }: TagInputProps) {
     const [input, setInput] = useState('');
     const [showSuggestions, setShowSuggestions] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -58,16 +60,29 @@ export function TagInput({ selectedTags, onTagsChange, availableTags, placeholde
 
     return (
         <div className={`relative ${className}`} ref={containerRef}>
-            <div className="flex flex-wrap gap-1.5 p-2 bg-white border border-gray-200 rounded-lg focus-within:ring-2 focus-within:ring-gray-100 focus-within:border-gray-400 transition-all">
+            <div className={clsx(
+                "flex flex-wrap gap-1 px-3 py-1.5 rounded-xl transition-all",
+                isDark 
+                    ? "bg-white/5 border border-white/10 focus-within:border-indigo-500 focus-within:ring-4 focus-within:ring-indigo-500/10" 
+                    : "bg-white border border-gray-200 focus-within:ring-2 focus-within:ring-gray-100 focus-within:border-gray-400"
+            )}>
                 {selectedTags.map(tag => (
-                    <span key={tag} className="flex items-center gap-1 px-2 py-0.5 bg-[#1B1B19]/5 text-[#1B1B19] rounded-md text-xs font-bold border border-[#1B1B19]/10">
+                    <span key={tag} className={clsx(
+                        "flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border",
+                        isDark 
+                            ? "bg-white/10 text-white border-white/10" 
+                            : "bg-[#1B1B19]/5 text-[#1B1B19] border-[#1B1B19]/10"
+                    )}>
                         {tag}
                         <button
                             type="button"
                             onClick={() => handleRemoveTag(tag)}
-                            className="hover:text-black transition-colors"
+                            className={clsx(
+                                "transition-colors",
+                                isDark ? "hover:text-red-400" : "hover:text-black"
+                            )}
                         >
-                            <X size={12} />
+                            <X size={10} />
                         </button>
                     </span>
                 ))}
@@ -78,30 +93,51 @@ export function TagInput({ selectedTags, onTagsChange, availableTags, placeholde
                     onFocus={() => setShowSuggestions(true)}
                     onKeyDown={handleKeyDown}
                     placeholder={selectedTags.length === 0 ? placeholder : ''}
-                    className="flex-1 bg-transparent border-none outline-none text-sm min-w-[120px] py-0.5"
+                    className={clsx(
+                        "flex-1 bg-transparent border-none outline-none text-xs min-w-[80px] py-0.5 selection:bg-indigo-500/30",
+                        isDark ? "text-white placeholder:text-slate-600" : "text-sm placeholder:text-gray-400"
+                    )}
                 />
             </div>
 
             {showSuggestions && (suggestions.length > 0 || (input.trim() && !selectedTags.includes(input.trim()))) && (
-                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden animate-fadeIn max-h-48 overflow-y-auto">
+                <div className={clsx(
+                    "absolute z-50 w-full mt-1 rounded-xl shadow-2xl overflow-hidden animate-fadeIn max-h-48 overflow-y-auto border",
+                    isDark 
+                        ? "bg-[#1B1B19] border-white/10" 
+                        : "bg-white border-gray-200 shadow-xl"
+                )}>
                     {suggestions.map(suggestion => (
                         <button
                             key={suggestion}
                             type="button"
                             onClick={() => handleAddTag(suggestion)}
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-[#1B1B19]/5 transition-all flex items-center justify-between group"
+                            className={clsx(
+                                "w-full text-left px-3 py-2 text-xs transition-all flex items-center justify-between group",
+                                isDark 
+                                    ? "text-slate-200 hover:bg-white/10" 
+                                    : "text-gray-700 hover:bg-[#1B1B19]/5"
+                            )}
                         >
-                            <span className="font-medium text-gray-700">{suggestion}</span>
-                            <Plus size={14} className="text-gray-300 group-hover:text-[#1B1B19]" />
+                            <span className="font-medium">{suggestion}</span>
+                            <Plus size={12} className={clsx(
+                                "transition-colors",
+                                isDark ? "text-slate-600 group-hover:text-white" : "text-gray-300 group-hover:text-[#1B1B19]"
+                            )} />
                         </button>
                     ))}
                     {input.trim() && !availableTags.some(t => t.toLowerCase() === input.trim().toLowerCase()) && (
                         <button
                             type="button"
                             onClick={() => handleAddTag(input)}
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-[#1B1B19]/10 transition-all flex items-center gap-2 text-[#1B1B19] bg-[#1B1B19]/5"
+                            className={clsx(
+                                "w-full text-left px-3 py-2 text-xs transition-all flex items-center gap-2",
+                                isDark 
+                                    ? "text-indigo-400 bg-indigo-500/5 hover:bg-indigo-500/10" 
+                                    : "text-[#1B1B19] bg-[#1B1B19]/5 hover:bg-[#1B1B19]/10"
+                            )}
                         >
-                            <Plus size={14} />
+                            <Plus size={12} />
                             <span className="font-bold">Create "{input.trim()}"</span>
                         </button>
                     )}
@@ -110,3 +146,5 @@ export function TagInput({ selectedTags, onTagsChange, availableTags, placeholde
         </div>
     );
 }
+
+

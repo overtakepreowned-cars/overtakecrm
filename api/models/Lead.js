@@ -43,7 +43,7 @@ const leadSchema = new mongoose.Schema({
     },
     enquiredVehicle: { type: String, lowercase: true },
     leadType: { type: String, enum: ['hot', 'warm', 'cold'], default: 'hot' },
-    status: { type: String, enum: ['new', 'contacted', 'sold', 'deal_closed'], default: 'new' },
+    status: { type: String, enum: ['new', 'contacted', 'booking_confirmed', 'deal_closed'], default: 'new' },
     notes: [{ type: String }],
     tags: [{ type: String, lowercase: true }],
 
@@ -69,7 +69,14 @@ const leadSchema = new mongoose.Schema({
         enum: ['advance payment', 'full payment', ''],
         lowercase: true,
         default: ''
-    }
+    },
+    bookMethod: {
+        type: String,
+        enum: ['loan', 'cash', ''],
+        lowercase: true,
+        default: ''
+    },
+    referredBy: { type: String }
 }, { timestamps: true });
 
 export default mongoose.model('Lead', leadSchema);

@@ -77,7 +77,9 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
         followupDate: '',
         followupNote: [],
         followupCount: 0,
-        paymentStatus: ''
+        paymentStatus: '',
+        bookMethod: '',
+        referredBy: ''
     });
 
     const [errors, setErrors] = useState<Record<string, string>>({});
@@ -146,7 +148,7 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
                 assignedTo: typeof initialData.assignedTo === 'object' ? (initialData.assignedTo as { _id: string })._id : initialData.assignedTo
             } as any);
         }
-    }, [initialData]);
+    }, [initialData?._id]);
 
     const validateForm = () => {
         const newErrors: Record<string, string> = {};
@@ -354,6 +356,18 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
                         <option value="other">Other</option>
                     </select>
                 </div>
+                {formData.leadOrigin?.toLowerCase() === 'referral' && (
+                    <div>
+                        <label className="mb-1.5 block text-[10px] font-bold text-gray-700 uppercase tracking-widest">Referred By</label>
+                        <input
+                            name="referredBy"
+                            value={formData.referredBy || ''}
+                            onChange={handleChange}
+                            placeholder="Name of referrer"
+                            className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-medium"
+                        />
+                    </div>
+                )}
                 <div>
                     <label className="mb-1.5 block text-[10px] font-bold text-gray-700 uppercase tracking-widest">Assign To</label>
                     <select
@@ -381,6 +395,19 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
                         <option value="full payment">Full Payment</option>
                     </select>
                 </div>
+                <div>
+                    <label className="mb-1.5 block text-[10px] font-bold text-gray-700 uppercase tracking-widest">Book Method</label>
+                    <select
+                        name="bookMethod"
+                        value={formData.bookMethod?.toLowerCase()}
+                        onChange={handleChange}
+                        className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-medium"
+                    >
+                        <option value="">None</option>
+                        <option value="loan">Loan</option>
+                        <option value="cash">Cash</option>
+                    </select>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -397,7 +424,7 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
                     <select name="status" value={formData.status} onChange={handleChange} className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-medium">
                         <option value="new">New</option>
                         <option value="contacted">Contacted</option>
-                        <option value="sold">Sold</option>
+                        <option value="booking_confirmed">Booking Confirmed</option>
                         <option value="deal_closed">Deal Closed</option>
                     </select>
                 </div>

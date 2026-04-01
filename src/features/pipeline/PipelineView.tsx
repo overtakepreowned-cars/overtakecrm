@@ -15,7 +15,7 @@ export function PipelineView() {
     const statuses = [
         { id: 'new', title: 'New', icon: Users, color: 'text-gray-500', bg: 'bg-gray-50', border: 'border-gray-100', activeBg: 'bg-gray-100' },
         { id: 'contacted', title: 'Contacted', icon: PhoneCall, color: 'text-blue-500', bg: 'bg-blue-50', border: 'border-blue-100', activeBg: 'bg-blue-100' },
-        { id: 'sold', title: 'Sold', icon: Zap, color: 'text-emerald-500', bg: 'bg-emerald-50', border: 'border-emerald-100', activeBg: 'bg-emerald-100' },
+        { id: 'booking_confirmed', title: 'Booking Confirmed', icon: Zap, color: 'text-emerald-500', bg: 'bg-emerald-50', border: 'border-emerald-100', activeBg: 'bg-emerald-100' },
         { id: 'deal_closed', title: 'Deal Closed', icon: Briefcase, color: 'text-indigo-500', bg: 'bg-indigo-50', border: 'border-indigo-100', activeBg: 'bg-indigo-100' },
     ];
 
@@ -218,12 +218,21 @@ export function PipelineView() {
                                                 </div>
                                             </div>
 
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); navigate(`/contact/${lead._id}`); }}
-                                                className="w-full mt-1 flex items-center justify-center gap-1.5 bg-[#1B1B19] hover:bg-black text-white text-[10px] font-bold py-2.5 rounded-xl border border-[#1B1B19] transition-colors shadow-sm shadow-gray-200 uppercase tracking-wider"
-                                            >
-                                                <Eye size={12} /> View Lead
-                                            </button>
+                                            <div className="flex flex-col gap-2 mt-2">
+                                                <a
+                                                    href={`tel:${lead.phone}`}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] uppercase tracking-wider font-bold py-2.5 rounded-xl transition-all shadow-sm shadow-emerald-200/50"
+                                                >
+                                                    <Phone size={12} /> Call Lead
+                                                </a>
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); navigate(`/contact/${lead._id}`); }}
+                                                    className="w-full flex items-center justify-center gap-2 bg-[#1B1B19] hover:bg-black text-white text-[10px] font-bold py-2.5 rounded-xl border border-[#1B1B19] transition-colors shadow-sm shadow-gray-200 uppercase tracking-wider"
+                                                >
+                                                    <Eye size={12} /> View Lead
+                                                </button>
+                                            </div>
                                         </motion.div>
                                     ))}
                             </AnimatePresence>

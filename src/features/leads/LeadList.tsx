@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLeads } from '../../context/LeadsContext';
-import { Search, Filter, X, Briefcase, Bookmark, MoreHorizontal, Trash2, UserPlus, CheckCircle2, Phone, Car, Edit3, Save, User as UserIcon, AlertTriangle } from 'lucide-react';
+import { Search, Filter, X, Briefcase, Bookmark, MoreHorizontal, Trash2, UserPlus, CheckCircle2, Phone, Car, Edit3, Save, User as UserIcon, AlertTriangle, Calendar } from 'lucide-react';
 import { isSameDay, parseISO, format } from 'date-fns';
 import { Lead, CarDetail, ApiLeadEditData, LeadFilter } from '../../types';
 import { TagInput } from '../../components/TagInput';
@@ -20,8 +20,23 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
     // Selection state
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
-    // Filter states
+    // Filter states (these are the ACTIVE filters used for calculation)
     const [searchTerm, setSearchTerm] = useState('');
+    const [activeFilters] = useState({
+        name: '', phone: '', status: 'all', leadType: 'all', leadOrigin: 'all',
+        place: '', designation: '', tags: [] as string[], date: '',
+        assignedTo: 'all', paymentStatus: 'all', intent: 'all',
+        brand: '', model: '', fuelType: 'all', year: '',
+        kmDriven: '', kmDrivenOp: 'eq' as 'eq' | 'gt' | 'lt',
+        amount: '', amountOp: 'eq' as 'eq' | 'gt' | 'lt',
+        bookMethod: 'all'
+    });
+
+    // Draft states (these are what the user sees in the UI)
+    const [draftFilters, setDraftFilters] = useState({...activeFilters});
+
+    // Individual states for backward compatibility if needed, but we'll try to refactor to use activeFilters
+    // Actually, to minimize changes to filteredLeads, I'll keep the individual states but only update them on Apply.
     const [nameFilter, setNameFilter] = useState('');
     const [phoneFilter, setPhoneFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
@@ -42,11 +57,104 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
     const [kmDrivenOp, setKmDrivenOp] = useState<'eq' | 'gt' | 'lt'>('eq');
     const [amountFilter, setAmountFilter] = useState('');
     const [amountOp, setAmountOp] = useState<'eq' | 'gt' | 'lt'>('eq');
+    const [bookMethodFilter, setBookMethodFilter] = useState('all');
 
+    // Focus states for suggestions
+    const [nameFocused, setNameFocused] = useState(false);
+    const [phoneFocused, setPhoneFocused] = useState(false);
     const [placeFocused, setPlaceFocused] = useState(false);
     const [designationFocused, setDesignationFocused] = useState(false);
-    const [brandFilterFocused, setBrandFilterFocused] = useState(false);
-    const [modelFilterFocused, setModelFilterFocused] = useState(false);
+    const [brandFocused, setBrandFocused] = useState(false);
+    const [modelFocused, setModelFocused] = useState(false);
+
+    // Suggestion Data
+    const availableNames = useMemo(() => Array.from(new Set(leads.map(l => l.name).filter(Boolean))), [leads]);
+    const availablePhones = useMemo(() => Array.from(new Set(leads.map(l => l.phone).filter(Boolean))), [leads]);
+    const availableBrandNames = useMemo(() => {
+        const brands = new Set<string>();
+        leads.forEach(l => {
+            l.carDetails?.forEach(c => {
+                if (c.brandName) brands.add(c.brandName);
+                if (c.wantedCar?.brandName) brands.add(c.wantedCar.brandName);
+                if (c.ownedCar?.brandName) brands.add(c.ownedCar.brandName);
+            });
+        });
+        return Array.from(brands).sort();
+    }, [leads]);
+    const availableModelNames = useMemo(() => {
+        const models = new Set<string>();
+        leads.forEach(l => {
+            l.carDetails?.forEach(c => {
+                if (c.modelName) models.add(c.modelName);
+                if (c.wantedCar?.modelName) models.add(c.wantedCar.modelName);
+                if (c.ownedCar?.modelName) models.add(c.ownedCar.modelName);
+            });
+        });
+        return Array.from(models).sort();
+    }, [leads]);
+    const availablePlaces = useMemo(() => Array.from(new Set(leads.map(l => l.place).filter(Boolean))), [leads]);
+    const availableDesignations = useMemo(() => Array.from(new Set(leads.map(l => l.designation).filter(Boolean))), [leads]);
+    const availableTags = useMemo(() => Array.from(new Set(leads.flatMap(l => l.tags))), [leads]);
+
+    const handleApplyFilters = () => {
+        // Sync draft to active (individual states)
+        setNameFilter(draftFilters.name);
+        setPhoneFilter(draftFilters.phone);
+        setStatusFilter(draftFilters.status);
+        setLeadTypeFilter(draftFilters.leadType);
+        setLeadOriginFilter(draftFilters.leadOrigin);
+        setPlaceFilter(draftFilters.place);
+        setDesignationFilter(draftFilters.designation);
+        setTagFilterTags(draftFilters.tags);
+        setDateFilter(draftFilters.date);
+        setAssignedToFilter(draftFilters.assignedTo);
+        setPaymentStatusFilter(draftFilters.paymentStatus);
+        setIntentFilter(draftFilters.intent);
+        setBrandFilter(draftFilters.brand);
+        setModelFilter(draftFilters.model);
+        setFuelTypeFilter(draftFilters.fuelType);
+        setYearFilter(draftFilters.year);
+        setKmDrivenFilter(draftFilters.kmDriven);
+        setKmDrivenOp(draftFilters.kmDrivenOp);
+        setAmountFilter(draftFilters.amount);
+        setAmountOp(draftFilters.amountOp);
+        setBookMethodFilter(draftFilters.bookMethod);
+    };
+
+    const handleResetFilters = () => {
+        const empty = {
+            name: '', phone: '', status: 'all', leadType: 'all', leadOrigin: 'all',
+            place: '', designation: '', tags: [] as string[], date: '',
+            assignedTo: 'all', paymentStatus: 'all', intent: 'all',
+            brand: '', model: '', fuelType: 'all', year: '',
+            kmDriven: '', kmDrivenOp: 'eq' as 'eq' | 'gt' | 'lt',
+            amount: '', amountOp: 'eq' as 'eq' | 'gt' | 'lt',
+            bookMethod: 'all'
+        };
+        setDraftFilters(empty);
+        // Also clear active filters immediately
+        setNameFilter('');
+        setPhoneFilter('');
+        setStatusFilter('all');
+        setLeadTypeFilter('all');
+        setLeadOriginFilter('all');
+        setPlaceFilter('');
+        setDesignationFilter('');
+        setTagFilterTags([]);
+        setDateFilter('');
+        setAssignedToFilter('all');
+        setPaymentStatusFilter('all');
+        setIntentFilter('all');
+        setBrandFilter('');
+        setModelFilter('');
+        setFuelTypeFilter('all');
+        setYearFilter('');
+        setKmDrivenFilter('');
+        setKmDrivenOp('eq');
+        setAmountFilter('');
+        setAmountOp('eq');
+        setBookMethodFilter('all');
+    };
 
     const [isSmartListModalOpen, setIsSmartListModalOpen] = useState(false);
     const [smartListName, setSmartListName] = useState('');
@@ -115,53 +223,6 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(20);
 
-    // Get unique tags from all leads for suggestions
-    const availableTags = useMemo(() => {
-        const tags = new Set<string>();
-        leads.forEach(l => l.tags?.forEach(t => tags.add(t)));
-        return Array.from(tags);
-    }, [leads]);
-
-    const availablePlaces = useMemo(() => {
-        const places = new Set<string>();
-        leads.forEach(l => {
-            if (l.place) places.add(l.place);
-        });
-        return Array.from(places);
-    }, [leads]);
-
-    const availableDesignations = useMemo(() => {
-        const designations = new Set<string>();
-        leads.forEach(l => {
-            if (l.designation) designations.add(l.designation);
-        });
-        return Array.from(designations);
-    }, [leads]);
-
-    const availableBrandNames = useMemo(() => {
-        const brands = new Set<string>();
-        leads.forEach(l => {
-            l.carDetails?.forEach(c => {
-                if (c.brandName) brands.add(c.brandName);
-                if (c.wantedCar?.brandName) brands.add(c.wantedCar.brandName);
-                if (c.ownedCar?.brandName) brands.add(c.ownedCar.brandName);
-            });
-        });
-        return Array.from(brands);
-    }, [leads]);
-
-    const availableModelNames = useMemo(() => {
-        const models = new Set<string>();
-        leads.forEach(l => {
-            l.carDetails?.forEach(c => {
-                if (c.modelName) models.add(c.modelName);
-                if (c.wantedCar?.modelName) models.add(c.wantedCar.modelName);
-                if (c.ownedCar?.modelName) models.add(c.ownedCar.modelName);
-            });
-        });
-        return Array.from(models);
-    }, [leads]);
-
     // Apply filters
     const filteredLeads = useMemo(() => {
         const activeSmartList = smartLists.find(l => l._id === activeSmartListId);
@@ -217,6 +278,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                 if (smartListFilter.leadOrigin && smartListFilter.leadOrigin !== 'all' && lead.leadOrigin !== smartListFilter.leadOrigin) return false;
 
                 if (smartListFilter.paymentStatus && lead.paymentStatus !== smartListFilter.paymentStatus) return false;
+                if (smartListFilter.bookMethod && lead.bookMethod !== smartListFilter.bookMethod) return false;
 
                 // Car / intent based filters for smart lists
                 if (
@@ -366,6 +428,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
             if (leadOriginFilter !== 'all' && lead.leadOrigin !== leadOriginFilter) return false;
 
             if (paymentStatusFilter !== 'all' && lead.paymentStatus !== paymentStatusFilter) return false;
+            if (bookMethodFilter !== 'all' && lead.bookMethod !== bookMethodFilter) return false;
 
             // Ad-hoc car / intent filters
             if (
@@ -498,16 +561,16 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
 
             if (statusFilter !== 'all' && lead.status !== statusFilter) return false;
             if (leadTypeFilter !== 'all' && lead.leadType !== leadTypeFilter) return false;
-            if (dateFilter && currentMode === 'all' && lead.followupDate?.split('T')[0] !== dateFilter) return false;
+            if (dateFilter && currentMode === 'all' && lead.createdAt?.split('T')[0] !== dateFilter) return false;
 
             return true;
         });
-    }, [leads, apiLeads, currentMode, activeSmartListId, smartLists, searchTerm, nameFilter, phoneFilter, placeFilter, designationFilter, tagFilterTags, dateFilter, statusFilter, leadTypeFilter, leadOriginFilter, assignedToFilter, paymentStatusFilter, intentFilter, brandFilter, modelFilter, fuelTypeFilter, yearFilter, kmDrivenFilter, kmDrivenOp, amountFilter, amountOp]);
+    }, [leads, apiLeads, currentMode, activeSmartListId, smartLists, searchTerm, nameFilter, phoneFilter, placeFilter, designationFilter, tagFilterTags, dateFilter, statusFilter, leadTypeFilter, leadOriginFilter, assignedToFilter, paymentStatusFilter, bookMethodFilter, intentFilter, brandFilter, modelFilter, fuelTypeFilter, yearFilter, kmDrivenFilter, kmDrivenOp, amountFilter, amountOp]);
 
     // Reset pagination when filters change
     useMemo(() => {
         setCurrentPage(1);
-    }, [searchTerm, nameFilter, phoneFilter, placeFilter, designationFilter, tagFilterTags, dateFilter, statusFilter, leadTypeFilter, leadOriginFilter, assignedToFilter, paymentStatusFilter, intentFilter, brandFilter, modelFilter, fuelTypeFilter, yearFilter, kmDrivenFilter, kmDrivenOp, amountFilter, amountOp, currentMode, activeSmartListId, pageSize]);
+    }, [searchTerm, nameFilter, phoneFilter, placeFilter, designationFilter, tagFilterTags, dateFilter, statusFilter, leadTypeFilter, leadOriginFilter, assignedToFilter, paymentStatusFilter, bookMethodFilter, intentFilter, brandFilter, modelFilter, fuelTypeFilter, yearFilter, kmDrivenFilter, kmDrivenOp, amountFilter, amountOp, currentMode, activeSmartListId, pageSize]);
 
     const paginatedLeads = useMemo(() => {
         const startIndex = (currentPage - 1) * pageSize;
@@ -566,6 +629,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                 assignedTo: assignedToFilter,
                 selectedIds: selectedIds.length > 0 ? selectedIds : undefined,
                 paymentStatus: (paymentStatusFilter === 'all' ? '' : paymentStatusFilter) as 'Advance Payment' | 'Full Payment' | '',
+                bookMethod: (bookMethodFilter === 'all' ? '' : bookMethodFilter) as 'loan' | 'cash' | '',
                 intent: intentFilter as LeadFilter['intent'],
                 brandName: brandFilter,
                 modelName: modelFilter,
@@ -594,6 +658,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
         leadOriginFilter !== 'all' ||
         assignedToFilter !== 'all' ||
         paymentStatusFilter !== 'all' ||
+        bookMethodFilter !== 'all' ||
         intentFilter !== 'all' ||
         !!brandFilter ||
         !!modelFilter ||
@@ -806,12 +871,12 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
 
                         {bulkUpdateType === 'status' && (
                             <div className="flex items-center gap-2 p-2 bg-white rounded-lg border border-indigo-100 animate-fadeIn">
-                                {['new', 'contacted', 'sold', 'deal_closed'].map(s => (
+                        {['new', 'contacted', 'booking_confirmed', 'deal_closed'].map(s => (
                                     <button
                                         key={s}
                                         onClick={async () => {
                                             if (!window.confirm(`Are you sure you want to update the status of ${selectedIds.length} contact(s)?`)) return;
-                                            await bulkUpdateLeads(selectedIds, { status: s as 'new' | 'contacted' | 'sold' | 'deal_closed' });
+                                            await bulkUpdateLeads(selectedIds, { status: s as 'new' | 'contacted' | 'booking_confirmed' | 'deal_closed' });
                                             setSelectedIds([]);
                                             setShowBulkUpdatePanel(false);
                                         }}
@@ -915,220 +980,295 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                 )}
 
                 {showAdvancedFilters && currentMode !== 'apileads' && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
-                        <input value={nameFilter} onChange={e => setNameFilter(e.target.value)} placeholder="By Name" className="text-sm px-3 py-2 rounded-lg border border-gray-200" />
-                        <input value={phoneFilter} onChange={e => setPhoneFilter(e.target.value)} placeholder="By Phone" className="text-sm px-3 py-2 rounded-lg border border-gray-200" />
-                        <div className="relative">
-                            <input
-                                value={placeFilter}
-                                onChange={e => setPlaceFilter(e.target.value)}
-                                onFocus={() => setPlaceFocused(true)}
-                                onBlur={() => setTimeout(() => setPlaceFocused(false), 100)}
-                                placeholder="By Place"
-                                className="w-full text-sm px-3 py-2 rounded-lg border border-gray-200"
-                            />
-                            {placeFocused && availablePlaces.length > 0 && (
-                                <div className="absolute z-40 mt-1 w-full max-h-40 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                                    {availablePlaces
-                                        .filter(p => !placeFilter || p.toLowerCase().includes(placeFilter.toLowerCase()))
-                                        .map(p => (
-                                            <button
-                                                key={p}
-                                                type="button"
-                                                onMouseDown={() => setPlaceFilter(p)}
-                                                className="w-full px-3 py-1.5 text-left text-sm hover:bg-indigo-50"
-                                            >
-                                                {p}
-                                            </button>
-                                        ))}
+                    <div className="flex flex-col gap-4 p-4 bg-[#1B1B19] rounded-2xl border border-gray-800 animate-slideDown shadow-2xl overflow-hidden">
+                        {/* Section 1: Basic & Lead Info (Uniform 5-column grid) */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                            {/* Contact Name */}
+                            <div className="flex flex-col gap-1 relative">
+                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Contact Name</label>
+                                <input
+                                    value={draftFilters.name}
+                                    onChange={e => setDraftFilters(prev => ({ ...prev, name: e.target.value }))}
+                                    onFocus={() => setNameFocused(true)}
+                                    onBlur={() => setTimeout(() => setNameFocused(false), 200)}
+                                    placeholder="Name..."
+                                    className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all w-full"
+                                />
+                                {nameFocused && availableNames.length > 0 && (
+                                    <div className="absolute z-50 mt-12 w-full max-h-40 overflow-y-auto rounded-xl border border-white/10 bg-[#1B1B19] shadow-2xl py-1">
+                                        {availableNames
+                                            .filter(n => !draftFilters.name || n.toLowerCase().includes(draftFilters.name.toLowerCase()))
+                                            .map(n => (
+                                                <button key={n} type="button" onMouseDown={() => setDraftFilters(prev => ({ ...prev, name: n }))} className="w-full px-3 py-1.5 text-left text-xs hover:bg-indigo-600 transition-colors font-medium text-slate-200">{n}</button>
+                                            ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Phone Number */}
+                            <div className="flex flex-col gap-1 relative">
+                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Phone Number</label>
+                                <input
+                                    value={draftFilters.phone}
+                                    onChange={e => setDraftFilters(prev => ({ ...prev, phone: e.target.value }))}
+                                    onFocus={() => setPhoneFocused(true)}
+                                    onBlur={() => setTimeout(() => setPhoneFocused(false), 200)}
+                                    placeholder="Phone..."
+                                    className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all w-full"
+                                />
+                                {phoneFocused && availablePhones.length > 0 && (
+                                    <div className="absolute z-50 mt-12 w-full max-h-40 overflow-y-auto rounded-xl border border-white/10 bg-[#1B1B19] shadow-2xl py-1">
+                                        {availablePhones
+                                            .filter(p => !draftFilters.phone || p.includes(draftFilters.phone))
+                                            .map(p => (
+                                                <button key={p} type="button" onMouseDown={() => setDraftFilters(prev => ({ ...prev, phone: p }))} className="w-full px-3 py-1.5 text-left text-xs hover:bg-indigo-600 transition-colors font-medium text-slate-200">{p}</button>
+                                            ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Place */}
+                            <div className="flex flex-col gap-1 relative">
+                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Place</label>
+                                <input
+                                    value={draftFilters.place}
+                                    onChange={e => setDraftFilters(prev => ({ ...prev, place: e.target.value }))}
+                                    onFocus={() => setPlaceFocused(true)}
+                                    onBlur={() => setTimeout(() => setPlaceFocused(false), 200)}
+                                    placeholder="Place..."
+                                    className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all w-full"
+                                />
+                                {placeFocused && availablePlaces.length > 0 && (
+                                    <div className="absolute z-50 mt-12 w-full max-h-40 overflow-y-auto rounded-xl border border-white/10 bg-[#1B1B19] shadow-2xl py-1">
+                                        {availablePlaces
+                                            .filter(p => !draftFilters.place || p.toLowerCase().includes(draftFilters.place.toLowerCase()))
+                                            .map(p => (
+                                                <button key={p} type="button" onMouseDown={() => setDraftFilters(prev => ({ ...prev, place: p }))} className="w-full px-3 py-1.5 text-left text-xs hover:bg-indigo-600 transition-colors font-medium text-slate-200">{p}</button>
+                                            ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Designation */}
+                            <div className="flex flex-col gap-1 relative">
+                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Designation</label>
+                                <input
+                                    value={draftFilters.designation}
+                                    onChange={e => setDraftFilters(prev => ({ ...prev, designation: e.target.value }))}
+                                    onFocus={() => setDesignationFocused(true)}
+                                    onBlur={() => setTimeout(() => setDesignationFocused(false), 200)}
+                                    placeholder="Designation..."
+                                    className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all w-full"
+                                />
+                                {designationFocused && availableDesignations.length > 0 && (
+                                    <div className="absolute z-50 mt-12 w-full max-h-40 overflow-y-auto rounded-xl border border-white/10 bg-[#1B1B19] shadow-2xl py-1">
+                                        {availableDesignations
+                                            .filter(d => !draftFilters.designation || d.toLowerCase().includes(draftFilters.designation.toLowerCase()))
+                                            .map(d => (
+                                                <button key={d} type="button" onMouseDown={() => setDraftFilters(prev => ({ ...prev, designation: d }))} className="w-full px-3 py-1.5 text-left text-xs hover:bg-indigo-600 transition-colors font-medium text-slate-200">{d}</button>
+                                            ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Status */}
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Status</label>
+                                <select value={draftFilters.status} onChange={e => setDraftFilters(prev => ({ ...prev, status: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full">
+                                    <option value="all">Any Status</option>
+                                    <option value="new">New</option>
+                                    <option value="contacted">Contacted</option>
+                                    <option value="booking_confirmed">Booking Confirmed</option>
+                                    <option value="deal_closed">Deal Closed</option>
+                                </select>
+                            </div>
+
+                            {/* Type */}
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Type</label>
+                                <select value={draftFilters.leadType} onChange={e => setDraftFilters(prev => ({ ...prev, leadType: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full">
+                                    <option value="all">Any Type</option>
+                                    <option value="hot">Hot</option>
+                                    <option value="warm">Warm</option>
+                                    <option value="cold">Cold</option>
+                                </select>
+                            </div>
+
+                            {/* Origin */}
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Origin</label>
+                                <select value={draftFilters.leadOrigin} onChange={e => setDraftFilters(prev => ({ ...prev, leadOrigin: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full">
+                                    <option value="all">Any Origin</option>
+                                    <option value="whatsapp">WhatsApp</option>
+                                    <option value="insta">Instagram</option>
+                                    <option value="fb">Facebook</option>
+                                    <option value="walk-in">Walk-in</option>
+                                    <option value="tele">Tele Caller</option>
+                                    <option value="referral">Referral</option>
+                                    <option value="web">Website</option>
+                                    <option value="olx">OLX</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+
+                            {/* Owner */}
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Owner</label>
+                                <select value={draftFilters.assignedTo} onChange={e => setDraftFilters(prev => ({ ...prev, assignedTo: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full">
+                                    <option value="all">Any Owner</option>
+                                    <option value="unassigned">Unassigned</option>
+                                    {users.map(u => <option key={u._id} value={u._id}>{u.username}</option>)}
+                                </select>
+                            </div>
+
+                            {/* Creation Date */}
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Creation Date</label>
+                                <input type="date" value={draftFilters.date} onChange={e => setDraftFilters(prev => ({ ...prev, date: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium color-scheme-dark w-full" title="Filter by creation date" />
+                            </div>
+
+                            {/* Tags */}
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Tags</label>
+                                <TagInput
+                                    selectedTags={draftFilters.tags}
+                                    onTagsChange={tags => setDraftFilters(prev => ({ ...prev, tags }))}
+                                    availableTags={availableTags}
+                                    placeholder="Select tags..."
+                                    isDark={true}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Section 2: Payment, Vehicle & Budget (Uniform 5-column grid) */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-3 border-t border-white/10 pt-3">
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Payment</label>
+                                <select value={draftFilters.paymentStatus} onChange={e => setDraftFilters(prev => ({ ...prev, paymentStatus: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full">
+                                    <option value="all">Any Payment</option>
+                                    <option value="">None</option>
+                                    <option value="advance payment">Advance</option>
+                                    <option value="full payment">Full</option>
+                                </select>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Method</label>
+                                <select value={draftFilters.bookMethod} onChange={e => setDraftFilters(prev => ({ ...prev, bookMethod: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full">
+                                    <option value="all">Any Method</option>
+                                    <option value="">None</option>
+                                    <option value="loan">Loan</option>
+                                    <option value="cash">Cash</option>
+                                </select>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Intent</label>
+                                <select value={draftFilters.intent} onChange={e => setDraftFilters(prev => ({ ...prev, intent: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full">
+                                    <option value="all">Any Intent</option>
+                                    <option value="buying">Buying</option>
+                                    <option value="selling">Selling</option>
+                                    <option value="exchange">Exchange</option>
+                                </select>
+                            </div>
+
+                            {/* Brand with suggestions */}
+                            <div className="flex flex-col gap-1 relative">
+                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Brand</label>
+                                <input
+                                    value={draftFilters.brand}
+                                    onChange={e => setDraftFilters(prev => ({ ...prev, brand: e.target.value }))}
+                                    onFocus={() => setBrandFocused(true)}
+                                    onBlur={() => setTimeout(() => setBrandFocused(false), 200)}
+                                    placeholder="Brand..."
+                                    className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all w-full"
+                                />
+                                {brandFocused && availableBrandNames.length > 0 && (
+                                    <div className="absolute z-50 mt-12 w-full max-h-40 overflow-y-auto rounded-xl border border-white/10 bg-[#1B1B19] shadow-2xl py-1">
+                                        {availableBrandNames
+                                            .filter(b => !draftFilters.brand || b.toLowerCase().includes(draftFilters.brand.toLowerCase()))
+                                            .map(b => (
+                                                <button key={b} type="button" onMouseDown={() => setDraftFilters(prev => ({ ...prev, brand: b }))} className="w-full px-3 py-1.5 text-left text-xs hover:bg-indigo-600 transition-colors font-medium text-slate-200">{b}</button>
+                                            ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Model with suggestions */}
+                            <div className="flex flex-col gap-1 relative">
+                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Model</label>
+                                <input
+                                    value={draftFilters.model}
+                                    onChange={e => setDraftFilters(prev => ({ ...prev, model: e.target.value }))}
+                                    onFocus={() => setModelFocused(true)}
+                                    onBlur={() => setTimeout(() => setModelFocused(false), 200)}
+                                    placeholder="Model..."
+                                    className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all w-full"
+                                />
+                                {modelFocused && availableModelNames.length > 0 && (
+                                    <div className="absolute z-50 mt-12 w-full max-h-40 overflow-y-auto rounded-xl border border-white/10 bg-[#1B1B19] shadow-2xl py-1">
+                                        {availableModelNames
+                                            .filter(m => !draftFilters.model || m.toLowerCase().includes(draftFilters.model.toLowerCase()))
+                                            .map(m => (
+                                                <button key={m} type="button" onMouseDown={() => setDraftFilters(prev => ({ ...prev, model: m }))} className="w-full px-3 py-1.5 text-left text-xs hover:bg-indigo-600 transition-colors font-medium text-slate-200">{m}</button>
+                                            ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Fuel</label>
+                                <select value={draftFilters.fuelType} onChange={e => setDraftFilters(prev => ({ ...prev, fuelType: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full">
+                                    <option value="all">Any Fuel</option>
+                                    <option value="petrol">Petrol</option>
+                                    <option value="diesel">Diesel</option>
+                                    <option value="electric">Electric</option>
+                                    <option value="hybrid">Hybrid</option>
+                                    <option value="cng">CNG</option>
+                                </select>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Year</label>
+                                <input value={draftFilters.year} onChange={e => setDraftFilters(prev => ({ ...prev, year: e.target.value.replace(/\D/g, '') }))} placeholder="YYYY" className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all w-full" />
+                            </div>
+
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">KM Driven</label>
+                                <div className="flex items-center gap-1">
+                                    <select value={draftFilters.kmDrivenOp} onChange={e => setDraftFilters(prev => ({ ...prev, kmDrivenOp: e.target.value as 'eq' | 'gt' | 'lt' }))} className="text-[10px] px-1.5 py-1.5 rounded-lg bg-white/10 border border-white/10 text-white font-bold appearance-none">
+                                        <option value="eq">Equal</option><option value="gt">Above</option><option value="lt">Below</option>
+                                    </select>
+                                    <input value={draftFilters.kmDriven} onChange={e => setDraftFilters(prev => ({ ...prev, kmDriven: e.target.value.replace(/\D/g, '') }))} placeholder="KM..." className="flex-1 min-w-0 text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 outline-none transition-all" />
                                 </div>
-                            )}
-                        </div>
-                        <div className="relative">
-                            <input
-                                value={designationFilter}
-                                onChange={e => setDesignationFilter(e.target.value)}
-                                onFocus={() => setDesignationFocused(true)}
-                                onBlur={() => setTimeout(() => setDesignationFocused(false), 100)}
-                                placeholder="By Designation"
-                                className="w-full text-sm px-3 py-2 rounded-lg border border-gray-200"
-                            />
-                            {designationFocused && availableDesignations.length > 0 && (
-                                <div className="absolute z-40 mt-1 w-full max-h-40 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                                    {availableDesignations
-                                        .filter(d => !designationFilter || d.toLowerCase().includes(designationFilter.toLowerCase()))
-                                        .map(d => (
-                                            <button
-                                                key={d}
-                                                type="button"
-                                                onMouseDown={() => setDesignationFilter(d)}
-                                                className="w-full px-3 py-1.5 text-left text-sm hover:bg-indigo-50"
-                                            >
-                                                {d}
-                                            </button>
-                                        ))}
+                            </div>
+
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Budget</label>
+                                <div className="flex items-center gap-1">
+                                    <select value={draftFilters.amountOp} onChange={e => setDraftFilters(prev => ({ ...prev, amountOp: e.target.value as 'eq' | 'gt' | 'lt' }))} className="text-[10px] px-1.5 py-1.5 rounded-lg bg-white/10 border border-white/10 text-white font-bold appearance-none">
+                                        <option value="eq">Equal</option><option value="gt">Above</option><option value="lt">Below</option>
+                                    </select>
+                                    <input value={draftFilters.amount} onChange={e => setDraftFilters(prev => ({ ...prev, amount: e.target.value.replace(/\D/g, '') }))} placeholder="Price..." className="flex-1 min-w-0 text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 outline-none transition-all" />
                                 </div>
-                            )}
+                            </div>
+
+                            {/* Filler to keep alignment if needed, or just let it wrap */}
+                            <div className="hidden lg:block"></div>
                         </div>
-                        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="text-sm px-3 py-2 rounded-lg border border-gray-200">
-                            <option value="all">Any Status</option>
-                            <option value="new">New</option>
-                            <option value="contacted">Contacted</option>
-                            <option value="sold">Sold</option>
-                            <option value="deal_closed">Deal Closed</option>
-                        </select>
-                        <select value={leadTypeFilter} onChange={e => setLeadTypeFilter(e.target.value)} className="text-sm px-3 py-2 rounded-lg border border-gray-200">
-                            <option value="all">Any Type</option>
-                            <option value="hot">Hot</option>
-                            <option value="warm">Warm</option>
-                            <option value="cold">Cold</option>
-                        </select>
-                        <select value={leadOriginFilter} onChange={e => setLeadOriginFilter(e.target.value)} className="text-sm px-3 py-2 rounded-lg border border-gray-200">
-                            <option value="all">Any Origin</option>
-                            <option value="whatsapp">WhatsApp</option>
-                            <option value="insta">Instagram</option>
-                            <option value="fb">Facebook</option>
-                            <option value="walk-in">Walk-in</option>
-                            <option value="tele">Tele Caller</option>
-                            <option value="referral">Referral</option>
-                            <option value="web">Website</option>
-                            <option value="olx">OLX</option>
-                            <option value="other">Other</option>
-                        </select>
-                        <select value={assignedToFilter} onChange={e => setAssignedToFilter(e.target.value)} className="text-sm px-3 py-2 rounded-lg border border-gray-200">
-                            <option value="unassigned">Unassigned</option>
-                            {users.map(u => <option key={u._id} value={u._id}>{u.username}</option>)}
-                        </select>
-                        <TagInput
-                            selectedTags={tagFilterTags}
-                            onTagsChange={setTagFilterTags}
-                            availableTags={availableTags}
-                            placeholder="Filter by Tag"
-                        />
-                        <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} className="text-sm px-3 py-2 rounded-lg border border-gray-200" />
-                        <select value={paymentStatusFilter} onChange={e => setPaymentStatusFilter(e.target.value)} className="text-sm px-3 py-2 rounded-lg border border-gray-200">
-                            <option value="all">Any Payment</option>
-                            <option value="">None</option>
-                            <option value="advance payment">Advance Payment</option>
-                            <option value="full payment">Full Payment</option>
-                        </select>
-                        <select value={intentFilter} onChange={e => setIntentFilter(e.target.value)} className="text-sm px-3 py-2 rounded-lg border border-gray-200">
-                            <option value="all">Any Intent</option>
-                            <option value="buying">Buying</option>
-                            <option value="selling">Selling</option>
-                            <option value="exchange">Exchange</option>
-                        </select>
-                        <div className="relative">
-                            <input
-                                value={brandFilter}
-                                onChange={e => setBrandFilter(e.target.value)}
-                                onFocus={() => setBrandFilterFocused(true)}
-                                onBlur={() => setTimeout(() => setBrandFilterFocused(false), 100)}
-                                placeholder="By Brand Name"
-                                className="w-full text-sm px-3 py-2 rounded-lg border border-gray-200"
-                            />
-                            {brandFilterFocused && availableBrandNames.length > 0 && (
-                                <div className="absolute z-40 mt-1 w-full max-h-40 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                                    {availableBrandNames
-                                        .filter(b => !brandFilter || b.toLowerCase().includes(brandFilter.toLowerCase()))
-                                        .map(b => (
-                                            <button
-                                                key={b}
-                                                type="button"
-                                                onMouseDown={() => setBrandFilter(b)}
-                                                className="w-full px-3 py-1.5 text-left text-sm hover:bg-indigo-50"
-                                            >
-                                                {b}
-                                            </button>
-                                        ))}
-                                </div>
-                            )}
+
+                        {/* ROW 3: Actions (New full-width row) */}
+                        <div className="flex flex-col sm:flex-row items-center justify-end gap-3 border-t border-white/10 pt-4 mt-1">
+                            <button
+                                onClick={handleResetFilters}
+                                className="w-full sm:w-auto px-6 py-2 text-xs font-bold text-red-100 hover:text-white bg-red-500/10 hover:bg-red-500 border border-red-500/20 rounded-xl transition-all uppercase tracking-widest flex items-center justify-center gap-2"
+                            >
+                                <X size={14} /> Reset Filters
+                            </button>
+                            <button
+                                onClick={handleApplyFilters}
+                                className="w-full sm:w-auto px-8 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl transition-all uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20"
+                            >
+                                <Filter size={14} /> Apply Filter
+                            </button>
                         </div>
-                        <div className="relative">
-                            <input
-                                value={modelFilter}
-                                onChange={e => setModelFilter(e.target.value)}
-                                onFocus={() => setModelFilterFocused(true)}
-                                onBlur={() => setTimeout(() => setModelFilterFocused(false), 100)}
-                                placeholder="By Model Name"
-                                className="w-full text-sm px-3 py-2 rounded-lg border border-gray-200"
-                            />
-                            {modelFilterFocused && availableModelNames.length > 0 && (
-                                <div className="absolute z-40 mt-1 w-full max-h-40 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                                    {availableModelNames
-                                        .filter(m => !modelFilter || m.toLowerCase().includes(modelFilter.toLowerCase()))
-                                        .map(m => (
-                                            <button
-                                                key={m}
-                                                type="button"
-                                                onMouseDown={() => setModelFilter(m)}
-                                                className="w-full px-3 py-1.5 text-left text-sm hover:bg-indigo-50"
-                                            >
-                                                {m}
-                                            </button>
-                                        ))}
-                                </div>
-                            )}
-                        </div>
-                        <select value={fuelTypeFilter} onChange={e => setFuelTypeFilter(e.target.value)} className="text-sm px-3 py-2 rounded-lg border border-gray-200">
-                            <option value="all">Any Fuel</option>
-                            <option value="petrol">Petrol</option>
-                            <option value="diesel">Diesel</option>
-                            <option value="electric">Electric</option>
-                            <option value="hybrid">Hybrid</option>
-                            <option value="cng">CNG</option>
-                        </select>
-                        <input
-                            value={yearFilter}
-                            onChange={e => setYearFilter(e.target.value.replace(/\D/g, ''))}
-                            placeholder="By Year (YYYY)"
-                            className="text-sm px-3 py-2 rounded-lg border border-gray-200"
-                        />
-                        <div className="flex items-center gap-2">
-                            <select value={kmDrivenOp} onChange={e => setKmDrivenOp(e.target.value as 'eq' | 'gt' | 'lt')} className="text-sm px-2 py-2 rounded-lg border border-gray-200">
-                                <option value="eq">Equal to</option>
-                                <option value="gt">Greater than</option>
-                                <option value="lt">Less than</option>
-                            </select>
-                            <input
-                                value={kmDrivenFilter}
-                                onChange={e => setKmDrivenFilter(e.target.value.replace(/\D/g, ''))}
-                                placeholder="KM Driven"
-                                className="flex-1 text-sm px-3 py-2 rounded-lg border border-gray-200"
-                            />
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <select value={amountOp} onChange={e => setAmountOp(e.target.value as 'eq' | 'gt' | 'lt')} className="text-sm px-2 py-2 rounded-lg border border-gray-200">
-                                <option value="eq">Equal to</option>
-                                <option value="gt">Greater than</option>
-                                <option value="lt">Less than</option>
-                            </select>
-                            <input
-                                value={amountFilter}
-                                onChange={e => setAmountFilter(e.target.value.replace(/\D/g, ''))}
-                                placeholder="Amount"
-                                className="flex-1 text-sm px-3 py-2 rounded-lg border border-gray-200"
-                            />
-                        </div>
-                        <button
-                            onClick={() => {
-                                setNameFilter(''); setPhoneFilter(''); setPlaceFilter(''); setDesignationFilter('');
-                                setTagFilterTags([]); setDateFilter('');
-                                setStatusFilter('all'); setLeadTypeFilter('all'); setLeadOriginFilter('all');
-                                setAssignedToFilter('all');
-                                setPaymentStatusFilter('all');
-                                setIntentFilter('all');
-                                setBrandFilter('');
-                                setModelFilter('');
-                                setFuelTypeFilter('all');
-                                setYearFilter('');
-                                setKmDrivenFilter('');
-                                setAmountFilter('');
-                            }}
-                            className="text-xs font-bold text-red-500 uppercase"
-                        >
-                            Reset
-                        </button>
                     </div>
                 )}
             </div>
@@ -1423,7 +1563,79 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                 </div>
             ) : (
             <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-350px)]">
-                <table className="w-full text-left border-collapse">
+                {/* Mobile Card View */}
+                <div className="md:hidden flex flex-col gap-4 p-4 bg-gray-50/30">
+                    {paginatedLeads.map(lead => (
+                        <div key={lead._id} className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm flex flex-col gap-3">
+                            <div className="flex justify-between items-start">
+                                <div className="flex flex-col">
+                                    <button
+                                        onClick={() => navigate(`/contact/${lead._id}`)}
+                                        className="font-bold text-base text-gray-900 hover:text-indigo-600 text-left"
+                                    >
+                                        {lead.name}
+                                    </button>
+                                    <span className="text-xs text-gray-500">{lead.place || 'No Place'}</span>
+                                </div>
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${lead.leadType === 'hot' ? 'bg-orange-50 text-orange-600 border border-orange-100' :
+                                    lead.leadType === 'warm' ? 'bg-yellow-50 text-yellow-600 border border-yellow-100' :
+                                        'bg-blue-50 text-blue-600 border border-blue-100'
+                                    }`}>
+                                    {lead.leadType}
+                                </span>
+                            </div>
+
+                            <div className="flex flex-col gap-1.5 text-xs text-gray-600">
+                                <div className="flex items-center gap-2">
+                                    <Briefcase size={12} className="text-gray-400" />
+                                    <span>{lead.designation || 'No Designation'}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Calendar size={12} className="text-gray-400" />
+                                    <span>{lead.createdAt ? format(parseISO(lead.createdAt), 'MMM d, yyyy') : 'N/A'}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <UserIcon size={12} className="text-gray-400" />
+                                    <span>{typeof lead.assignedTo === 'object' ? lead.assignedTo?.username : 'Unassigned'}</span>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-1">
+                                {lead.tags.map((tag, i) => (
+                                    <span key={i} className="px-1.5 py-0.5 bg-gray-50 text-gray-500 border border-gray-100 rounded text-[9px] font-medium">
+                                        {tag}
+                                    </span>
+                                ))}
+                            </div>
+
+                            <div className="flex items-center justify-between border-t border-gray-50 pt-3 mt-1">
+                                <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${lead.status === 'booking_confirmed' || lead.status === 'deal_closed' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                                    'bg-gray-100 text-gray-600 border border-gray-200'
+                                    }`}>
+                                    {lead.status.replace('_', ' ')}
+                                </span>
+                                <div className="flex gap-2">
+                                    <a
+                                        href={`tel:${lead.phone}`}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-sm"
+                                    >
+                                        <Phone size={12} /> Call
+                                    </a>
+                                    <button
+                                        onClick={() => navigate(`/contact/${lead._id}`)}
+                                        className="px-3 py-1.5 bg-[#1B1B19] text-white rounded-lg text-[10px] font-bold uppercase tracking-wider"
+                                    >
+                                        View
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Desktop Table View */}
+                <table className="hidden md:table w-full text-left border-collapse">
                     <thead className="bg-gray-50/50 border-b border-gray-100 sticky top-0 z-10">
                         <tr>
                             <th className="p-4 w-10 border-r border-gray-100 text-center bg-gray-50/50">
@@ -1485,7 +1697,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                     </span>
                                 </td>
                                 <td className="p-4">
-                                    <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${lead.status === 'sold' || lead.status === 'deal_closed' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                                    <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${lead.status === 'booking_confirmed' || lead.status === 'deal_closed' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
                                         'bg-gray-100 text-gray-600 border border-gray-200'
                                         }`}>
                                         {lead.status.replace('_', ' ')}

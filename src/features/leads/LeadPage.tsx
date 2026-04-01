@@ -180,11 +180,24 @@ export function LeadPage() {
                                     <span className="text-sm font-bold text-emerald-700">{lead.paymentStatus}</span>
                                 </div>
                             )}
+                            {lead.bookMethod && (
+                                <div className="flex items-center gap-1.5 text-gray-600 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
+                                    <CreditCard size={14} className="text-blue-500" />
+                                    <span className="text-sm font-bold text-blue-700 uppercase tracking-tight">{lead.bookMethod}</span>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
 
                 <div className="flex items-center gap-3 w-full lg:w-auto mt-2 lg:mt-0">
+                    <a
+                        href={`tel:${lead.phone}`}
+                        className="flex-1 lg:flex-none flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white shadow-md transition-colors hover:bg-emerald-700"
+                    >
+                        <Phone size={16} />
+                        Call Lead
+                    </a>
                     <button
                         onClick={() => setIsEditModalOpen(true)}
                         className="flex-1 lg:flex-none flex items-center justify-center gap-2 rounded-xl bg-[#1B1B19] px-5 py-2.5 text-sm font-bold text-white shadow-md transition-colors hover:bg-black"
@@ -228,7 +241,15 @@ export function LeadPage() {
                                 <div className="w-full h-px bg-gray-100"></div>
                                 <div className="flex flex-col gap-1">
                                     <span className="text-[10px] font-bold uppercase tracking-widest text-gray-700">Lead Source / Origin</span>
-                                    <span className="font-medium text-sm text-gray-900 bg-gray-50 self-start px-2.5 py-1 rounded-md border border-gray-200">{lead.leadOrigin}</span>
+                                    <div className="flex flex-col gap-2">
+                                        <span className="font-medium text-sm text-gray-900 bg-gray-50 self-start px-2.5 py-1 rounded-md border border-gray-200">{lead.leadOrigin}</span>
+                                        {lead.referredBy && (
+                                            <div className="flex flex-col gap-0.5">
+                                                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Referred By</span>
+                                                <span className="font-bold text-sm text-indigo-600">{lead.referredBy}</span>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                                 <div className="w-full h-px bg-gray-100"></div>
                                 <div className="flex flex-col gap-1">

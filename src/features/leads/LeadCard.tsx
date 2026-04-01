@@ -144,7 +144,7 @@ export function LeadCard({ lead, onClick, onStatusChange }: LeadCardProps) {
                 >
                     <option value="new">New</option>
                     <option value="contacted">Contacted</option>
-                    <option value="sold">Sold</option>
+                    <option value="booking_confirmed">Booking Confirmed</option>
                     <option value="deal_closed">Deal Closed</option>
                 </select>
             </div>

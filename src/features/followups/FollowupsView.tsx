@@ -29,7 +29,7 @@ export function FollowupsView() {
 
     const filteredLeads = useMemo(() => {
         return leads.filter(lead => {
-            if (!lead.followupDate || lead.status === 'sold' || lead.status === 'deal_closed') return false;
+            if (!lead.followupDate || lead.status === 'booking_confirmed' || lead.status === 'deal_closed') return false;
 
             // Apply assignee filter
             if (assigneeFilter !== 'all') {
@@ -352,12 +352,21 @@ export function FollowupsView() {
 
 
 
-                                                    <button
-                                                        onClick={() => navigate(`/contact/${lead._id}`)}
-                                                        className="w-full mt-1 flex items-center justify-center gap-1.5 bg-[#1B1B19] hover:bg-black text-white text-[10px] uppercase tracking-wider font-bold py-2 rounded-xl border border-[#1B1B19] transition-colors shadow-sm shadow-gray-200"
-                                                    >
-                                                        <Eye size={12} /> View Lead
-                                                    </button>
+                                                    <div className="flex flex-col gap-2 mt-2">
+                                                        <a
+                                                            href={`tel:${lead.phone}`}
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] uppercase tracking-wider font-bold py-2.5 rounded-xl transition-all shadow-sm shadow-emerald-200/50"
+                                                        >
+                                                            <Phone size={12} /> Call Lead
+                                                        </a>
+                                                        <button
+                                                            onClick={() => navigate(`/contact/${lead._id}`)}
+                                                            className="w-full flex items-center justify-center gap-2 bg-[#1B1B19] hover:bg-black text-white text-[10px] uppercase tracking-wider font-bold py-2.5 rounded-xl border border-[#1B1B19] transition-colors shadow-sm shadow-gray-200"
+                                                        >
+                                                            <Eye size={12} /> View Lead
+                                                        </button>
+                                                    </div>
                                                 </motion.div>
                                             );
                                         })}

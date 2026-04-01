@@ -15,12 +15,12 @@ export function Dashboard() {
     const advancePayments = leads.filter(l => l.paymentStatus === 'Advance Payment').length;
 
     const todaysFollowupsCount = leads.filter(l => {
-        if (!l.followupDate || l.status === 'sold' || l.status === 'deal_closed') return false;
+        if (!l.followupDate || l.status === 'booking_confirmed' || l.status === 'deal_closed') return false;
         return isSameDay(parseISO(l.followupDate), today);
     }).length;
 
     const missedFollowups = leads.filter(l => {
-        if (!l.followupDate || l.status === 'sold' || l.status === 'deal_closed') return false;
+        if (!l.followupDate || l.status === 'booking_confirmed' || l.status === 'deal_closed') return false;
         const fDate = parseISO(l.followupDate);
         return fDate < today && !isSameDay(today, fDate);
     }).length;
@@ -57,9 +57,9 @@ export function Dashboard() {
             return assignedId === user._id;
         });
 
-        const todayFollowups = userLeads.filter(l => l.followupDate && isSameDay(parseISO(l.followupDate), today) && l.status !== 'sold' && l.status !== 'deal_closed').length;
+        const todayFollowups = userLeads.filter(l => l.followupDate && isSameDay(parseISO(l.followupDate), today) && l.status !== 'booking_confirmed' && l.status !== 'deal_closed').length;
         const missedUFollowups = userLeads.filter(l => {
-            if (!l.followupDate || l.status === 'sold' || l.status === 'deal_closed') return false;
+            if (!l.followupDate || l.status === 'booking_confirmed' || l.status === 'deal_closed') return false;
             const fDate = parseISO(l.followupDate);
             return fDate < today && !isSameDay(today, fDate);
         }).length;
@@ -155,7 +155,7 @@ export function Dashboard() {
                 <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col gap-4">
                     <h3 className="font-bold text-gray-900 border-b border-gray-50 pb-4">Status Breakdown</h3>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                        {['new', 'contacted', 'sold', 'deal_closed'].map((status) => {
+                        {['new', 'contacted', 'booking_confirmed', 'deal_closed'].map((status) => {
                             const count = statusBreakdown[status] || 0;
                             return (
                                 <div key={status} className="flex flex-col p-3 rounded-xl bg-gray-50 border border-gray-100">

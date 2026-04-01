@@ -63,7 +63,7 @@ export interface Lead {
 
     enquiredVehicle: string;
     leadType: 'hot' | 'warm' | 'cold';
-    status: 'new' | 'contacted' | 'sold' | 'deal_closed';
+    status: 'new' | 'contacted' | 'booking_confirmed' | 'deal_closed';
     notes: string[];
     tags: string[];
     carDetails: CarDetail[];
@@ -74,6 +74,8 @@ export interface Lead {
     followupCount: number;
     followupHistory: FollowupRecord[];
     paymentStatus?: 'Advance Payment' | 'Full Payment' | '';
+    bookMethod?: 'loan' | 'cash' | '';
+    referredBy?: string;
     createdAt: string;
     updatedAt: string;
     // Api lead fields
@@ -102,6 +104,7 @@ export interface LeadFilter {
     assignedTo?: string;
     selectedIds?: string[];
     paymentStatus?: 'Advance Payment' | 'Full Payment' | '';
+    bookMethod?: 'loan' | 'cash' | '';
     intent?: 'buying' | 'selling' | 'exchange' | 'all';
     brandName?: string;
     modelName?: string;
