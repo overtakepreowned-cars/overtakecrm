@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLeads } from '../../context/LeadsContext';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -8,9 +8,10 @@ import { Zap, PhoneCall, Users, Eye, Phone, User, Briefcase, Calendar, CreditCar
 import { clsx } from 'clsx';
 
 export function PipelineView() {
-    const { leads, updateLead } = useLeads();
+    const { leads, updateLead, users } = useLeads();
     const navigate = useNavigate();
     const [activeStatus, setActiveStatus] = useState<Lead['status']>('new');
+    const [userFilter, setUserFilter] = useState('all');
 
     const statuses = [
         { id: 'new', title: 'New', icon: Users, color: 'text-gray-500', bg: 'bg-gray-50', border: 'border-gray-100', activeBg: 'bg-gray-100' },
@@ -28,6 +29,20 @@ export function PipelineView() {
     const handleUpdate = (leadId: string, data: Partial<Lead>) => {
         updateLead(leadId, data);
     };
+
+    const filteredLeads = useMemo(() => {
+        return leads.filter(l => {
+            if (userFilter !== 'all') {
+                const leadAssignedId = typeof l.assignedTo === 'object' ? l.assignedTo?._id : l.assignedTo;
+                if (userFilter === 'unassigned') {
+                    if (leadAssignedId) return false;
+                } else if (leadAssignedId !== userFilter) {
+                    return false;
+                }
+            }
+            return true;
+        });
+    }, [leads, userFilter]);
 
 
     return (
@@ -53,11 +68,27 @@ export function PipelineView() {
                                     "ml-2 text-[10px] px-2 py-0.5 rounded-full",
                                     activeStatus === status.id ? `${status.bg} ${status.color}` : "bg-gray-200 text-gray-400"
                                 )}>
-                                    {leads.filter(l => l.status === status.id).length}
+                                    {filteredLeads.filter(l => l.status === status.id).length}
                                 </span>
                             </button>
                         ))}
                     </div>
+                </div>
+
+                {/* User Filter Dropdown */}
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-xl border border-gray-100 shadow-sm min-w-[160px]">
+                    <User size={14} className="text-gray-400 shrink-0" />
+                    <select
+                        value={userFilter}
+                        onChange={(e) => setUserFilter(e.target.value)}
+                        className="bg-transparent text-xs font-bold text-gray-700 outline-none cursor-pointer w-full"
+                    >
+                        <option value="all">All Users</option>
+                        <option value="unassigned">Unassigned</option>
+                        {users.map(u => (
+                            <option key={u._id} value={u._id}>{u.username}</option>
+                        ))}
+                    </select>
                 </div>
             </div>
 
@@ -84,14 +115,14 @@ export function PipelineView() {
                                     {column.title}
                                 </h3>
                                 <span className="text-xs font-bold text-gray-600 bg-gray-100 px-2.5 py-0.5 rounded-full border border-gray-200">
-                                    {leads.filter((l: Lead) => l.status === activeStatus && l.leadType === column.id).length}
+                                    {filteredLeads.filter((l: Lead) => l.status === activeStatus && l.leadType === column.id).length}
                                 </span>
                             </div>
                         </div>
 
                         <div className="flex-1 overflow-y-auto pr-1 space-y-4 scrollbar-thin scrollbar-thumb-gray-200">
                             <AnimatePresence mode="popLayout" initial={false}>
-                                {leads
+                                {filteredLeads
                                     .filter((l: Lead) => l.status === activeStatus && l.leadType === column.id)
                                     .map((lead) => (
                                         <motion.div
@@ -236,7 +267,7 @@ export function PipelineView() {
                                         </motion.div>
                                     ))}
                             </AnimatePresence>
-                            {leads.filter((l: Lead) => l.status === activeStatus && l.leadType === column.id).length === 0 && (
+                            {filteredLeads.filter((l: Lead) => l.status === activeStatus && l.leadType === column.id).length === 0 && (
                                 <div className="flex flex-col items-center justify-center py-12 text-gray-300">
                                     <span className="text-[10px] font-bold uppercase tracking-widest text-center">No {column.title}</span>
                                 </div>
