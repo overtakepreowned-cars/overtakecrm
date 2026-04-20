@@ -6,7 +6,7 @@ import { isSameDay, parseISO, format } from 'date-fns';
 import { Lead, CarDetail, ApiLeadEditData, LeadFilter } from '../../types';
 import { TagInput } from '../../components/TagInput';
 import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
-import { COUNTRIES, DEFAULT_COUNTRY, parsePhoneNumber } from '../../constants/countries';
+import { COUNTRIES, parsePhoneNumber } from '../../constants/countries';
 
 interface LeadListProps {
     initialFilter?: 'all' | 'followup';
