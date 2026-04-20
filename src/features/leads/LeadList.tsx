@@ -6,6 +6,7 @@ import { isSameDay, parseISO, format } from 'date-fns';
 import { Lead, CarDetail, ApiLeadEditData, LeadFilter } from '../../types';
 import { TagInput } from '../../components/TagInput';
 import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
+import { COUNTRIES, DEFAULT_COUNTRY, parsePhoneNumber } from '../../constants/countries';
 
 interface LeadListProps {
     initialFilter?: 'all' | 'followup';
@@ -1313,7 +1314,33 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                     </div>
                                     <div className="flex flex-col gap-1.5">
                                         <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Phone</label>
-                                        <input value={editData.phone} onChange={e => setEditData(d => ({ ...d, phone: e.target.value }))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all" />
+                                        <div className="flex gap-2">
+                                            <select
+                                                value={parsePhoneNumber(editData.phone || '').countryCode}
+                                                onChange={(e) => {
+                                                    const { localNumber } = parsePhoneNumber(editData.phone || '');
+                                                    setEditData(d => ({ ...d, phone: `${e.target.value}${localNumber}` }));
+                                                }}
+                                                className="w-24 rounded-lg border border-gray-200 px-2 py-2 text-xs focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+                                            >
+                                                <option value="">Select</option>
+                                                {COUNTRIES.map(c => (
+                                                    <option key={`${c.iso}-${c.code}`} value={c.code}>
+                                                        {c.flag} {c.code}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <input
+                                                value={parsePhoneNumber(editData.phone || '').localNumber}
+                                                onChange={(e) => {
+                                                    const val = e.target.value.replace(/\D/g, '');
+                                                    const { countryCode } = parsePhoneNumber(editData.phone || '');
+                                                    setEditData(d => ({ ...d, phone: `${countryCode}${val}` }));
+                                                }}
+                                                className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+                                                placeholder="Number"
+                                            />
+                                        </div>
                                     </div>
 
                                     {/* Place with suggestions */}

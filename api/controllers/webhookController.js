@@ -14,10 +14,34 @@ export const captureWebhookLead = async (req, res, next) => {
         let rawPhone = leadinfo.whatsapp_phone ? String(leadinfo.whatsapp_phone).trim() : (leadinfo.phone ? String(leadinfo.phone).trim() : '');
         let phone = null;
         if (rawPhone) {
-            if (rawPhone.startsWith('+91')) rawPhone = rawPhone.substring(3);
-            else if (rawPhone.startsWith('91') && rawPhone.length > 10) rawPhone = rawPhone.substring(2);
-            phone = rawPhone.replace(/\D/g, '');
-            if (!phone) phone = null;
+            let digits = rawPhone.replace(/\D/g, '');
+            const hasInitialPlus = rawPhone.trim().startsWith('+');
+            
+            // List of common country prefixes to check if number starts with them but lacks '+'
+            const commonPrefixes = ['91', '971', '966', '974', '965', '968', '973', '20', '962', '961', '964', '963', '967', '970', '972', '98', '90', '1', '44'];
+            
+            if (hasInitialPlus) {
+                // If it already has a +, keep it as is (standard international)
+                phone = '+' + digits;
+            } else {
+                // Try to see if it starts with a known prefix and has a reasonable length for that country
+                // This is a heuristic to help auto-detect. 
+                // If no clear match, we leave it without a '+' so the UI knows it needs manual selection.
+                let detected = false;
+                for (const prefix of commonPrefixes) {
+                    if (digits.startsWith(prefix) && digits.length > 8) {
+                        phone = '+' + digits;
+                        detected = true;
+                        break;
+                    }
+                }
+                
+                if (!detected) {
+                    // No prefix detected, store digits only. 
+                    // The CRM UI will see no '+' and prompt user to select country.
+                    phone = digits;
+                }
+            }
         }
         
         if (!name || !phone) {

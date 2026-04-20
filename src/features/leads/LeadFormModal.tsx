@@ -4,6 +4,7 @@ import { useLeads } from '../../context/LeadsContext';
 import { Lead, CarDetail, VehicleInfo } from '../../types';
 import { TagInput } from '../../components/TagInput';
 import { format } from 'date-fns';
+import { COUNTRIES, DEFAULT_COUNTRY, parsePhoneNumber } from '../../constants/countries';
 
 interface LeadFormModalProps {
     onClose: () => void;
@@ -82,6 +83,11 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
         referredBy: ''
     });
 
+    const [phoneData, setPhoneData] = useState({
+        countryCode: DEFAULT_COUNTRY.code,
+        localPhone: ''
+    });
+
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [focusedField, setFocusedField] = useState<string | null>(null);
     const [newGeneralNote, setNewGeneralNote] = useState('');
@@ -142,11 +148,16 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
                 return normalized;
             });
 
+            const { countryCode, localNumber } = parsePhoneNumber(initialData.phone || '');
+            setPhoneData({ countryCode, localPhone: localNumber });
+
             setFormData({
                 ...initialData,
                 carDetails: normalizedCarDetails,
                 assignedTo: typeof initialData.assignedTo === 'object' ? (initialData.assignedTo as { _id: string })._id : initialData.assignedTo
             } as any);
+        } else {
+            setPhoneData({ countryCode: DEFAULT_COUNTRY.code, localPhone: '' });
         }
     }, [initialData?._id]);
 
@@ -154,16 +165,26 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
         const newErrors: Record<string, string> = {};
         if (!formData.name?.trim()) newErrors.name = 'Name is required';
 
-        const phone = formData.phone?.trim();
-        if (!phone) {
+        const { countryCode, localPhone } = phoneData;
+        const country = COUNTRIES.find(c => c.code === countryCode) || DEFAULT_COUNTRY;
+        
+        if (!localPhone.trim()) {
             newErrors.phone = 'Phone is required';
-        } else if (!/^\d{10}$/.test(phone)) {
-            newErrors.phone = 'Phone must be exactly 10 digits';
         } else {
-            // Check for duplicate phone
-            const isDuplicate = leads.some(l => l.phone === phone && l._id !== initialData?._id);
-            if (isDuplicate) {
-                newErrors.phone = `A contact with phone ${phone} already exists`;
+            const isValid = Array.isArray(country.length) 
+                ? country.length.includes(localPhone.length) 
+                : localPhone.length === country.length;
+            
+            if (!isValid) {
+                const expected = Array.isArray(country.length) ? country.length.join(' or ') : country.length;
+                newErrors.phone = `Phone must be ${expected} digits for ${country.name}`;
+            } else {
+                // Check for duplicate phone
+                const fullPhone = `${countryCode}${localPhone}`;
+                const isDuplicate = leads.some(l => l.phone === fullPhone && l._id !== initialData?._id);
+                if (isDuplicate) {
+                    newErrors.phone = `A contact with phone ${fullPhone} already exists`;
+                }
             }
         }
 
@@ -175,10 +196,8 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
         const { name } = e.target;
         let { value } = e.target;
 
-        // Restrict phone to digits only
-        if (name === 'phone') {
-            value = value.replace(/\D/g, '').slice(0, 10);
-        }
+        // Restrict phone logic moved to specialized handlers
+        if (name === 'phone') return;
 
         setFormData(prev => ({ ...prev, [name]: value }));
         // Clear error when user types
@@ -240,7 +259,10 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
         e.preventDefault();
         if (!validateForm()) return;
 
-        const finalData = { ...formData };
+        const finalData = { 
+            ...formData, 
+            phone: `${phoneData.countryCode}${phoneData.localPhone}` 
+        };
 
         if (initialData) {
             if (!window.confirm('Are you sure you want to update this contact?')) return;
@@ -275,14 +297,46 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
                 </div>
                 <div className="flex flex-col gap-1">
                     <label className="mb-1.5 block text-[10px] font-bold text-gray-700 uppercase tracking-widest">Phone <span className="text-red-500">*</span></label>
-                    <input
-                        name="phone"
-                        required
-                        value={formData.phone || ''}
-                        onChange={handleChange}
-                        className={`w-full rounded-xl border px-4 py-3 text-sm transition-all focus:outline-none focus:ring-4 ${errors.phone ? 'border-red-500 bg-red-50 focus:border-red-500 focus:ring-red-500/10' : 'border-gray-200 focus:border-indigo-500 focus:ring-indigo-500/10'}`}
-                        placeholder="10 Digits"
-                    />
+                    <div className="flex gap-2">
+                        <select
+                            value={phoneData.countryCode}
+                            onChange={(e) => {
+                                setPhoneData(prev => ({ ...prev, countryCode: e.target.value }));
+                                if (errors.phone) setErrors(prev => {
+                                    const updated = { ...prev };
+                                    delete updated.phone;
+                                    return updated;
+                                });
+                            }}
+                            className={`w-28 rounded-xl border px-3 py-3 text-sm transition-all focus:outline-none focus:ring-4 ${errors.phone ? 'border-red-500 bg-red-50' : 'border-gray-200 focus:border-indigo-500 focus:ring-indigo-500/10'}`}
+                        >
+                            {COUNTRIES.map(c => (
+                                <option key={`${c.iso}-${c.code}`} value={c.code}>
+                                    {c.flag} {c.code}
+                                </option>
+                            ))}
+                        </select>
+                        <input
+                            name="phone"
+                            required
+                            value={phoneData.localPhone}
+                            onChange={(e) => {
+                                const val = e.target.value.replace(/\D/g, '');
+                                const country = COUNTRIES.find(c => c.code === phoneData.countryCode) || DEFAULT_COUNTRY;
+                                const maxLen = Array.isArray(country.length) ? Math.max(...country.length) : country.length;
+                                if (val.length <= maxLen) {
+                                    setPhoneData(prev => ({ ...prev, localPhone: val }));
+                                    if (errors.phone) setErrors(prev => {
+                                        const updated = { ...prev };
+                                        delete updated.phone;
+                                        return updated;
+                                    });
+                                }
+                            }}
+                            className={`flex-1 rounded-xl border px-4 py-3 text-sm transition-all focus:outline-none focus:ring-4 ${errors.phone ? 'border-red-500 bg-red-50 focus:border-red-500 focus:ring-red-500/10' : 'border-gray-200 focus:border-indigo-500 focus:ring-indigo-500/10'}`}
+                            placeholder="Phone Number"
+                        />
+                    </div>
                     {errors.phone && <span className="mt-1 text-[11px] font-bold text-red-600 bg-red-50 px-2.5 py-1.5 rounded-lg border border-red-100 flex items-center gap-1.5"><AlertCircle size={12} /> {errors.phone}</span>}
                 </div>
             </div>
