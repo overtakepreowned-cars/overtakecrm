@@ -7,6 +7,7 @@ export interface CountryConfig {
 }
 
 export const COUNTRIES: CountryConfig[] = [
+    { name: 'None', code: '', iso: 'none', length: [5, 15], flag: '🌐' },
     { name: 'India', code: '+91', iso: 'IN', length: 10, flag: '🇮🇳' },
     { name: 'United Arab Emirates', code: '+971', iso: 'AE', length: 9, flag: '🇦🇪' },
     { name: 'Saudi Arabia', code: '+966', iso: 'SA', length: 9, flag: '🇸🇦' },
@@ -34,7 +35,7 @@ export const COUNTRIES: CountryConfig[] = [
     { name: 'France', code: '+33', iso: 'FR', length: 9, flag: '🇫🇷' },
 ];
 
-export const DEFAULT_COUNTRY = COUNTRIES[0]; // India
+export const DEFAULT_COUNTRY = COUNTRIES[0]; // None
 
 export const parsePhoneNumber = (fullPhone: string): { countryCode: string; localNumber: string } => {
     if (!fullPhone) return { countryCode: '', localNumber: '' };

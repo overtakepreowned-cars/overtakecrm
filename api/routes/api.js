@@ -37,6 +37,7 @@ router.delete('/leads/:id', leadsController.deleteLead);
 router.post('/leads/bulk-delete', leadsController.bulkDeleteLeads);
 router.post('/leads/bulk-assign', leadsController.bulkAssignLeads);
 router.post('/leads/bulk-update', leadsController.bulkUpdateLeads);
+router.post('/leads/bulk-prefix', leadsController.bulkUpdatePhonePrefix);
 
 // API Leads
 router.get('/api-leads', leadsController.getApiLeads);

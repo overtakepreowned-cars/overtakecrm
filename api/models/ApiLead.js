@@ -33,6 +33,7 @@ const assignmentRecordSchema = new mongoose.Schema({
 const apiLeadSchema = new mongoose.Schema({
     name: { type: String, required: true, lowercase: true },
     phone: { type: String, required: true, unique: true },
+    countryCode: { type: String, default: '' },
     place: { type: String, lowercase: true },
     designation: { type: String, lowercase: true },
     leadOrigin: {

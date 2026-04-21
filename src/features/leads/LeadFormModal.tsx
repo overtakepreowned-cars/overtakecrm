@@ -148,8 +148,17 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
                 return normalized;
             });
 
-            const { countryCode, localNumber } = parsePhoneNumber(initialData.phone || '');
-            setPhoneData({ countryCode, localPhone: localNumber });
+            // Special handling for API leads which store countryCode and phone separately
+            const isApiLead = (initialData as any).isApiLead;
+            if (isApiLead && (initialData as any).countryCode !== undefined) {
+                setPhoneData({ 
+                    countryCode: (initialData as any).countryCode || '', 
+                    localPhone: initialData.phone || '' 
+                });
+            } else {
+                const { countryCode, localNumber } = parsePhoneNumber(initialData.phone || '');
+                setPhoneData({ countryCode, localPhone: localNumber });
+            }
 
             setFormData({
                 ...initialData,
@@ -171,12 +180,14 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
         if (!localPhone.trim()) {
             newErrors.phone = 'Phone is required';
         } else {
-            const isValid = Array.isArray(country.length) 
-                ? country.length.includes(localPhone.length) 
-                : localPhone.length === country.length;
+            const isValid = country.code === '' 
+                ? (localPhone.length >= 5 && localPhone.length <= 15) // Broad range for 'None'
+                : (Array.isArray(country.length) 
+                    ? country.length.includes(localPhone.length) 
+                    : localPhone.length === country.length);
             
             if (!isValid) {
-                const expected = Array.isArray(country.length) ? country.length.join(' or ') : country.length;
+                const expected = country.code === '' ? '5 to 15' : (Array.isArray(country.length) ? country.length.join(' or ') : country.length);
                 newErrors.phone = `Phone must be ${expected} digits for ${country.name}`;
             } else {
                 // Check for duplicate phone
@@ -312,7 +323,7 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
                         >
                             {COUNTRIES.map(c => (
                                 <option key={`${c.iso}-${c.code}`} value={c.code}>
-                                    {c.flag} {c.code}
+                                    {c.flag} {c.code || 'None'}
                                 </option>
                             ))}
                         </select>

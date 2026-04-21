@@ -93,6 +93,7 @@ export interface LeadFilter {
     search?: string;
     name?: string;
     phone?: string;
+    countryCode?: string;
     place?: string;
     designation?: string;
     tag?: string;

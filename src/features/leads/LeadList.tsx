@@ -13,7 +13,7 @@ interface LeadListProps {
 }
 
 export function LeadList({ initialFilter = 'all' }: LeadListProps) {
-    const { leads, apiLeads, addSmartList, users, deleteApiLead, approveApiLead, updateApiLead, bulkDeleteLeads, bulkAssignLeads, bulkUpdateLeads, smartLists, deleteSmartList } = useLeads();
+    const { leads, apiLeads, addSmartList, users, deleteApiLead, approveApiLead, updateApiLead, bulkDeleteLeads, bulkAssignLeads, bulkUpdateLeads, bulkUpdatePhonePrefix, smartLists, deleteSmartList } = useLeads();
 
     const [currentMode, setCurrentMode] = useState<'all' | 'followup' | 'smartlist' | 'apileads'>(initialFilter);
     const [activeSmartListId, setActiveSmartListId] = useState<string | null>(null);
@@ -24,7 +24,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
     // Filter states (these are the ACTIVE filters used for calculation)
     const [searchTerm, setSearchTerm] = useState('');
     const [activeFilters] = useState({
-        name: '', phone: '', status: 'all', leadType: 'all', leadOrigin: 'all',
+        name: '', phone: '', countryCode: '', status: 'all', leadType: 'all', leadOrigin: 'all',
         place: '', designation: '', tags: [] as string[], date: '',
         assignedTo: 'all', paymentStatus: 'all', intent: 'all',
         brand: '', model: '', fuelType: 'all', year: '',
@@ -34,12 +34,13 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
     });
 
     // Draft states (these are what the user sees in the UI)
-    const [draftFilters, setDraftFilters] = useState({...activeFilters});
+    const [draftFilters, setDraftFilters] = useState({ ...activeFilters });
 
     // Individual states for backward compatibility if needed, but we'll try to refactor to use activeFilters
     // Actually, to minimize changes to filteredLeads, I'll keep the individual states but only update them on Apply.
     const [nameFilter, setNameFilter] = useState('');
     const [phoneFilter, setPhoneFilter] = useState('');
+    const [countryCodeFilter, setCountryCodeFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
     const [leadTypeFilter, setLeadTypeFilter] = useState('all');
     const [leadOriginFilter, setLeadOriginFilter] = useState('all');
@@ -101,6 +102,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
         // Sync draft to active (individual states)
         setNameFilter(draftFilters.name);
         setPhoneFilter(draftFilters.phone);
+        setCountryCodeFilter(draftFilters.countryCode || '');
         setStatusFilter(draftFilters.status);
         setLeadTypeFilter(draftFilters.leadType);
         setLeadOriginFilter(draftFilters.leadOrigin);
@@ -124,7 +126,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
 
     const handleResetFilters = () => {
         const empty = {
-            name: '', phone: '', status: 'all', leadType: 'all', leadOrigin: 'all',
+            name: '', phone: '', countryCode: '', status: 'all', leadType: 'all', leadOrigin: 'all',
             place: '', designation: '', tags: [] as string[], date: '',
             assignedTo: 'all', paymentStatus: 'all', intent: 'all',
             brand: '', model: '', fuelType: 'all', year: '',
@@ -136,6 +138,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
         // Also clear active filters immediately
         setNameFilter('');
         setPhoneFilter('');
+        setCountryCodeFilter('');
         setStatusFilter('all');
         setLeadTypeFilter('all');
         setLeadOriginFilter('all');
@@ -164,7 +167,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
     const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
     const [showBulkAssignPanel, setShowBulkAssignPanel] = useState(false);
     const [showBulkUpdatePanel, setShowBulkUpdatePanel] = useState(false);
-    const [bulkUpdateType, setBulkUpdateType] = useState<'status' | 'type' | 'tags' | 'date' | null>(null);
+    const [bulkUpdateType, setBulkUpdateType] = useState<'status' | 'type' | 'tags' | 'date' | 'countryCode' | null>(null);
     const [bulkTagUpdateType, setBulkTagUpdateType] = useState<'add' | 'remove'>('add');
     const [bulkTags, setBulkTags] = useState<string[]>([]);
 
@@ -247,9 +250,13 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
             // Priority: Quick Search
             if (searchTerm) {
                 const searchLower = searchTerm.toLowerCase();
+                const searchDigits = searchTerm.replace(/\D/g, '');
+                const phoneDigits = lead.phone.replace(/\D/g, '');
+
                 return (
                     lead.name.toLowerCase().includes(searchLower) ||
                     lead.phone.includes(searchLower) ||
+                    (searchDigits && phoneDigits.includes(searchDigits)) ||
                     (lead.place && lead.place.toLowerCase().includes(searchLower)) ||
                     lead.tags.some(t => t.toLowerCase().includes(searchLower)) ||
                     lead.carDetails?.some(c => `${c.brandName} ${c.modelName}`.toLowerCase().includes(searchLower))
@@ -270,7 +277,16 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                     if (!smartListFilter.selectedIds.includes(lead._id)) return false;
                 }
                 if (smartListFilter.name && !lead.name.toLowerCase().includes(smartListFilter.name.toLowerCase())) return false;
-                if (smartListFilter.phone && !lead.phone.includes(smartListFilter.phone)) return false;
+
+                // Smart list phone logic
+                const searchPhone = smartListFilter.phone;
+                const searchCC = smartListFilter.countryCode;
+
+                if (searchCC && !lead.phone.startsWith(searchCC)) return false;
+                if (searchPhone) {
+                    const localDigits = lead.phone.replace(searchCC || '', '');
+                    if (!lead.phone.includes(searchPhone) && !localDigits.includes(searchPhone)) return false;
+                }
                 if (smartListFilter.place && (!lead.place || !lead.place.toLowerCase().includes(smartListFilter.place.toLowerCase()))) return false;
                 if (smartListFilter.designation && (!lead.designation || !lead.designation.toLowerCase().includes(smartListFilter.designation.toLowerCase()))) return false;
                 if (smartListFilter.tag && !lead.tags.some(t => t.toLowerCase().includes(smartListFilter.tag!.toLowerCase()))) return false;
@@ -417,7 +433,21 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
 
             // Ad-hoc Filters (Local state)
             if (nameFilter && !lead.name.toLowerCase().includes(nameFilter.toLowerCase())) return false;
-            if (phoneFilter && !lead.phone.includes(phoneFilter)) return false;
+
+            // Ad-hoc phone logic
+            if (countryCodeFilter && !lead.phone.startsWith(countryCodeFilter)) return false;
+            if (phoneFilter) {
+                const searchDigits = phoneFilter.replace(/\D/g, '');
+                const phoneDigits = lead.phone.replace(/\D/g, '');
+                const localDigits = lead.phone.replace(countryCodeFilter, '');
+                const localPartialDigits = localDigits.replace(/\D/g, '');
+
+                const matchesFull = lead.phone.includes(phoneFilter);
+                const matchesDigits = searchDigits && phoneDigits.includes(searchDigits);
+                const matchesLocal = localDigits.includes(phoneFilter) || (searchDigits && localPartialDigits.includes(searchDigits));
+
+                if (!matchesFull && !matchesDigits && !matchesLocal) return false;
+            }
             if (placeFilter && (!lead.place || !lead.place.toLowerCase().includes(placeFilter.toLowerCase()))) return false;
             if (designationFilter && (!lead.designation || !lead.designation.toLowerCase().includes(designationFilter.toLowerCase()))) return false;
             if (tagFilterTags.length > 0) {
@@ -621,6 +651,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
             filters: {
                 name: nameFilter,
                 phone: phoneFilter,
+                countryCode: countryCodeFilter,
                 place: placeFilter,
                 designation: designationFilter,
                 tag: tagFilterTags[0],
@@ -808,23 +839,23 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                 >
                                     <Trash2 size={16} /> Delete
                                 </button>
-                                 {currentMode === 'apileads' && (
-                                     <button
-                                         onClick={async () => {
-                                             const hasExisting = selectedIds.some(id => apiLeads.find(l => l._id === id)?.existingInCrm);
-                                             const msg = hasExisting
-                                                 ? `Process ${selectedIds.length} lead(s)? Returning customers will have their data merged into existing contacts.`
-                                                 : `Approve and move ${selectedIds.length} leads to CRM?`;
-                                             if (window.confirm(msg)) {
-                                                 await Promise.all(selectedIds.map(id => approveApiLead(id)));
-                                                 setSelectedIds([]);
-                                             }
-                                         }}
-                                         className="flex items-center gap-2 px-3 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-sm font-bold hover:bg-emerald-100 transition-all border border-emerald-200"
-                                     >
-                                         <CheckCircle2 size={16} /> Add to CRM
-                                     </button>
-                                 )}
+                                {currentMode === 'apileads' && (
+                                    <button
+                                        onClick={async () => {
+                                            const hasExisting = selectedIds.some(id => apiLeads.find(l => l._id === id)?.existingInCrm);
+                                            const msg = hasExisting
+                                                ? `Process ${selectedIds.length} lead(s)? Returning customers will have their data merged into existing contacts.`
+                                                : `Approve and move ${selectedIds.length} leads to CRM?`;
+                                            if (window.confirm(msg)) {
+                                                await Promise.all(selectedIds.map(id => approveApiLead(id)));
+                                                setSelectedIds([]);
+                                            }
+                                        }}
+                                        className="flex items-center gap-2 px-3 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-sm font-bold hover:bg-emerald-100 transition-all border border-emerald-200"
+                                    >
+                                        <CheckCircle2 size={16} /> Add to CRM
+                                    </button>
+                                )}
                             </div>
                         ) : (
                             hasActiveFilters && currentMode !== 'apileads' && (
@@ -866,13 +897,14 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                 <button onClick={() => setBulkUpdateType('type')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all border ${bulkUpdateType === 'type' ? 'bg-[#1B1B19] text-white border-[#1B1B19]' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>Lead Type</button>
                                 <button onClick={() => setBulkUpdateType('tags')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all border ${bulkUpdateType === 'tags' ? 'bg-[#1B1B19] text-white border-[#1B1B19]' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>Tags</button>
                                 <button onClick={() => setBulkUpdateType('date')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all border ${bulkUpdateType === 'date' ? 'bg-[#1B1B19] text-white border-[#1B1B19]' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>Follow-up</button>
+                                <button onClick={() => setBulkUpdateType('countryCode')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all border ${bulkUpdateType === 'countryCode' ? 'bg-[#1B1B19] text-white border-[#1B1B19]' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>Country Code</button>
                             </div>
                             <button onClick={() => setShowBulkUpdatePanel(false)} className="ml-auto text-indigo-400 hover:text-indigo-600"><X size={18} /></button>
                         </div>
 
                         {bulkUpdateType === 'status' && (
                             <div className="flex items-center gap-2 p-2 bg-white rounded-lg border border-indigo-100 animate-fadeIn">
-                        {['new', 'contacted', 'booking_confirmed', 'deal_closed'].map(s => (
+                                {['new', 'contacted', 'booking_confirmed', 'deal_closed'].map(s => (
                                     <button
                                         key={s}
                                         onClick={async () => {
@@ -977,6 +1009,28 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                 <span className="text-[10px] text-gray-400 px-2 italic">Select date to apply</span>
                             </div>
                         )}
+                        {bulkUpdateType === 'countryCode' && (
+                            <div className="flex items-center gap-3 p-2 bg-white rounded-lg border border-indigo-100 animate-fadeIn overflow-x-auto no-scrollbar">
+                                <span className="text-xs font-bold text-gray-500 ml-2 whitespace-nowrap">Select Prefix:</span>
+                                <div className="flex gap-2 pb-1">
+                                    {COUNTRIES.map(c => (
+                                        <button
+                                            key={`${c.iso}-${c.code}`}
+                                            onClick={async () => {
+                                                if (!window.confirm(`Apply ${c.flag} ${c.code || 'None'} prefix to ${selectedIds.length} contact(s)?`)) return;
+                                                await bulkUpdatePhonePrefix(selectedIds, c.code);
+                                                setSelectedIds([]);
+                                                setShowBulkUpdatePanel(false);
+                                                setBulkUpdateType(null);
+                                            }}
+                                            className="px-3 py-1 bg-gray-50 hover:bg-indigo-600 hover:text-white rounded text-xs font-bold whitespace-nowrap transition-all border border-gray-200"
+                                        >
+                                            {c.flag} {c.code || 'None'}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -1009,14 +1063,28 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                             {/* Phone Number */}
                             <div className="flex flex-col gap-1 relative">
                                 <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Phone Number</label>
-                                <input
-                                    value={draftFilters.phone}
-                                    onChange={e => setDraftFilters(prev => ({ ...prev, phone: e.target.value }))}
-                                    onFocus={() => setPhoneFocused(true)}
-                                    onBlur={() => setTimeout(() => setPhoneFocused(false), 200)}
-                                    placeholder="Phone..."
-                                    className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all w-full"
-                                />
+                                <div className="flex gap-1.5 w-full">
+                                    <select
+                                        value={draftFilters.countryCode || ''}
+                                        onChange={e => setDraftFilters(prev => ({ ...prev, countryCode: e.target.value }))}
+                                        className="text-[10px] w-20 px-2 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 outline-none transition-all appearance-none scrollbar-hide"
+                                    >
+                                        <option value="">Any</option>
+                                        {COUNTRIES.map(c => (
+                                            <option key={`${c.iso}-${c.code}`} value={c.code}>
+                                                {c.flag} {c.code || 'None'}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <input
+                                        value={draftFilters.phone}
+                                        onChange={e => setDraftFilters(prev => ({ ...prev, phone: e.target.value }))}
+                                        onFocus={() => setPhoneFocused(true)}
+                                        onBlur={() => setTimeout(() => setPhoneFocused(false), 200)}
+                                        placeholder="Phone..."
+                                        className="text-xs flex-1 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
+                                    />
+                                </div>
                                 {phoneFocused && availablePhones.length > 0 && (
                                     <div className="absolute z-50 mt-12 w-full max-h-40 overflow-y-auto rounded-xl border border-white/10 bg-[#1B1B19] shadow-2xl py-1">
                                         {availablePhones
@@ -1278,485 +1346,484 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
             {currentMode === 'apileads' ? (
                 <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-start bg-gray-50/30 overflow-y-auto max-h-[calc(100vh-350px)]">
                     {paginatedLeads.map(lead => {
-                         const isEditing = editingApiLeadId === lead._id;
-                         const isExisting = lead.existingInCrm === true;
-                         return (
-                         <div key={lead._id} className={`bg-white rounded-xl border shadow-sm p-5 hover:shadow-md transition-shadow flex flex-col gap-4 h-fit relative ${isEditing ? 'border-indigo-300 ring-2 ring-indigo-100' : isExisting ? 'border-amber-200 ring-1 ring-amber-50' : 'border-gray-200'}`}>
-                             <div className="absolute top-4 right-4 flex items-center gap-3">
-                                 <span className="text-[10px] font-bold text-gray-300">#{(currentPage - 1) * pageSize + paginatedLeads.indexOf(lead) + 1}</span>
-                                 {!isEditing && (
-                                     <button onClick={() => startEditApiLead(lead)} className="p-1 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-all" title="Edit">
-                                         <Edit3 size={14} />
-                                     </button>
-                                 )}
-                                 <input
-                                     type="checkbox"
-                                     checked={selectedIds.includes(lead._id!)}
-                                     onChange={e => handleSelectLead(lead._id!, e.target.checked)}
-                                     className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                 />
-                             </div>
-
-                             {/* Existing in CRM badge */}
-                             {isExisting && !isEditing && (
-                                 <div className="absolute top-4 left-4 flex items-center gap-1 px-2 py-0.5 bg-amber-50 border border-amber-200 rounded-full">
-                                     <AlertTriangle size={10} className="text-amber-500" />
-                                     <span className="text-[10px] font-bold text-amber-600">Existing Lead</span>
-                                 </div>
-                             )}
-
-                            {isEditing ? (
-                                /* ─── EDIT MODE ─── */
-                                <div className="flex flex-col gap-3 pr-8">
-                                    <div className="flex flex-col gap-1.5">
-                                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Name</label>
-                                        <input value={editData.name} onChange={e => setEditData(d => ({ ...d, name: e.target.value }))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-bold focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all" />
-                                    </div>
-                                    <div className="flex flex-col gap-1.5">
-                                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Phone</label>
-                                        <div className="flex gap-2">
-                                            <select
-                                                value={parsePhoneNumber(editData.phone || '').countryCode}
-                                                onChange={(e) => {
-                                                    const { localNumber } = parsePhoneNumber(editData.phone || '');
-                                                    setEditData(d => ({ ...d, phone: `${e.target.value}${localNumber}` }));
-                                                }}
-                                                className="w-24 rounded-lg border border-gray-200 px-2 py-2 text-xs focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
-                                            >
-                                                <option value="">Select</option>
-                                                {COUNTRIES.map(c => (
-                                                    <option key={`${c.iso}-${c.code}`} value={c.code}>
-                                                        {c.flag} {c.code}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            <input
-                                                value={parsePhoneNumber(editData.phone || '').localNumber}
-                                                onChange={(e) => {
-                                                    const val = e.target.value.replace(/\D/g, '');
-                                                    const { countryCode } = parsePhoneNumber(editData.phone || '');
-                                                    setEditData(d => ({ ...d, phone: `${countryCode}${val}` }));
-                                                }}
-                                                className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
-                                                placeholder="Number"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    {/* Place with suggestions */}
-                                    <div className="flex flex-col gap-1.5 relative">
-                                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Place</label>
-                                        <input value={editData.place} onChange={e => setEditData(d => ({ ...d, place: e.target.value }))} onFocus={() => setEditFocus('place')} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all" />
-                                        {editFocus === 'place' && availablePlaces.filter(p => !editData.place || p.toLowerCase().includes(editData.place.toLowerCase())).length > 0 && (
-                                            <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-32 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                                                {availablePlaces.filter(p => !editData.place || p.toLowerCase().includes(editData.place.toLowerCase())).map(p => (
-                                                    <button key={p} type="button" onMouseDown={() => setEditData(d => ({ ...d, place: p }))} className="w-full px-3 py-1.5 text-left text-sm hover:bg-indigo-50 transition-colors">{p}</button>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Designation with suggestions */}
-                                    <div className="flex flex-col gap-1.5 relative">
-                                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Designation</label>
-                                        <input value={editData.designation} onChange={e => setEditData(d => ({ ...d, designation: e.target.value }))} onFocus={() => setEditFocus('designation')} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all" />
-                                        {editFocus === 'designation' && availableDesignations.filter(d => !editData.designation || d.toLowerCase().includes(editData.designation.toLowerCase())).length > 0 && (
-                                            <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-32 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                                                {availableDesignations.filter(d => !editData.designation || d.toLowerCase().includes(editData.designation.toLowerCase())).map(d => (
-                                                    <button key={d} type="button" onMouseDown={() => setEditData(dd => ({ ...dd, designation: d }))} className="w-full px-3 py-1.5 text-left text-sm hover:bg-indigo-50 transition-colors">{d}</button>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Lead Origin */}
-                                    <div className="flex flex-col gap-1.5">
-                                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Source</label>
-                                        <select value={editData.leadOrigin} onChange={e => setEditData(d => ({ ...d, leadOrigin: e.target.value }))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all">
-                                            <option value="">Select Origin</option>
-                                            <option value="whatsapp">WhatsApp</option><option value="insta">Instagram</option><option value="fb">Facebook</option>
-                                            <option value="walk-in">Walk-in</option><option value="tele">Tele Caller</option><option value="referral">Referral</option>
-                                            <option value="web">Website</option><option value="olx">OLX</option><option value="other">Other</option>
-                                        </select>
-                                    </div>
-
-                                    {/* Assign User */}
-                                    <div className="flex flex-col gap-1.5">
-                                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><UserIcon size={10} /> Assign To</label>
-                                        <select value={editData.assignedTo} onChange={e => setEditData(d => ({ ...d, assignedTo: e.target.value }))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all">
-                                            <option value="">Unassigned</option>
-                                            {users.map(u => <option key={u._id} value={u._id}>{u.username}</option>)}
-                                        </select>
-                                    </div>
-
-                                    {/* Vehicle Details */}
-                                    {(editData.carDetails?.length ?? 0) > 0 && (
-                                        <div className="flex flex-col gap-2 mt-1">
-                                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><Car size={10}/> Vehicles</span>
-                                            {(editData.carDetails ?? []).map((car: CarDetail, idx: number) => (
-                                                <div key={idx} className="p-3 rounded-lg border border-indigo-100 bg-indigo-50/20 flex flex-col gap-2">
-                                                    <select value={car.intent} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], intent: e.target.value as 'buying' | 'selling' | 'exchange' }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs">
-                                                        <option value="buying">Buying</option><option value="selling">Selling</option><option value="exchange">Exchange</option>
-                                                    </select>
-                                                    {car.intent !== 'selling' && (
-                                                        <div className="flex flex-col gap-1">
-                                                            <span className="text-[9px] font-bold text-gray-400 uppercase">Wanted Car</span>
-                                                            <div className="flex gap-1.5 relative">
-                                                                <div className="flex-1 relative">
-                                                                    <input placeholder="Brand" value={car.wantedCar?.brandName || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], wantedCar: { ...(cd[idx].wantedCar || {brandName:'', modelName:'', fuelType:'', kmDriven:''}), brandName: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`wb${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
-                                                                    {editFocus === `wb${idx}` && availableBrandNames.filter(b => !car.wantedCar?.brandName || b.toLowerCase().includes((car.wantedCar?.brandName || '').toLowerCase())).length > 0 && (
-                                                                        <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                                                                            {availableBrandNames.filter(b => !car.wantedCar?.brandName || b.toLowerCase().includes((car.wantedCar?.brandName || '').toLowerCase())).map(b => (
-                                                                                <button key={b} type="button" onMouseDown={() => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], wantedCar: { ...(cd[idx].wantedCar || {brandName:'', modelName:'', fuelType:'', kmDriven:''}), brandName: b } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{b}</button>
-                                                                            ))}
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                                <div className="flex-1 relative">
-                                                                    <input placeholder="Model" value={car.wantedCar?.modelName || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], wantedCar: { ...(cd[idx].wantedCar || {brandName:'', modelName:'', fuelType:'', kmDriven:''}), modelName: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`wm${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
-                                                                    {editFocus === `wm${idx}` && availableModelNames.filter(m => !car.wantedCar?.modelName || m.toLowerCase().includes((car.wantedCar?.modelName || '').toLowerCase())).length > 0 && (
-                                                                        <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                                                                            {availableModelNames.filter(m => !car.wantedCar?.modelName || m.toLowerCase().includes((car.wantedCar?.modelName || '').toLowerCase())).map(m => (
-                                                                                <button key={m} type="button" onMouseDown={() => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], wantedCar: { ...(cd[idx].wantedCar || {brandName:'', modelName:'', fuelType:'', kmDriven:''}), modelName: m } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{m}</button>
-                                                                            ))}
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                    {car.intent !== 'buying' && (
-                                                        <div className="flex flex-col gap-1">
-                                                            <span className="text-[9px] font-bold text-gray-400 uppercase">Owned Car</span>
-                                                            <div className="flex gap-1.5 relative">
-                                                                <div className="flex-1 relative">
-                                                                    <input placeholder="Brand" value={car.ownedCar?.brandName || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || {brandName:'', modelName:'', fuelType:'', kmDriven:''}), brandName: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`ob${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
-                                                                    {editFocus === `ob${idx}` && availableBrandNames.filter(b => !car.ownedCar?.brandName || b.toLowerCase().includes((car.ownedCar?.brandName || '').toLowerCase())).length > 0 && (
-                                                                        <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                                                                            {availableBrandNames.filter(b => !car.ownedCar?.brandName || b.toLowerCase().includes((car.ownedCar?.brandName || '').toLowerCase())).map(b => (
-                                                                                <button key={b} type="button" onMouseDown={() => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || {brandName:'', modelName:'', fuelType:'', kmDriven:''}), brandName: b } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{b}</button>
-                                                                            ))}
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                                <div className="flex-1 relative">
-                                                                    <input placeholder="Model" value={car.ownedCar?.modelName || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || {brandName:'', modelName:'', fuelType:'', kmDriven:''}), modelName: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`om${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
-                                                                    {editFocus === `om${idx}` && availableModelNames.filter(m => !car.ownedCar?.modelName || m.toLowerCase().includes((car.ownedCar?.modelName || '').toLowerCase())).length > 0 && (
-                                                                        <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                                                                            {availableModelNames.filter(m => !car.ownedCar?.modelName || m.toLowerCase().includes((car.ownedCar?.modelName || '').toLowerCase())).map(m => (
-                                                                                <button key={m} type="button" onMouseDown={() => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || {brandName:'', modelName:'', fuelType:'', kmDriven:''}), modelName: m } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{m}</button>
-                                                                            ))}
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                            <div className="flex gap-1.5">
-                                                                <input placeholder="Year" value={car.ownedCar?.year || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || {brandName:'', modelName:'', fuelType:'', kmDriven:''}), year: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="flex-1 rounded-md border border-gray-200 px-2 py-1 text-xs" />
-                                                                <input placeholder="KM" value={car.ownedCar?.kmDriven || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || {brandName:'', modelName:'', fuelType:'', kmDriven:''}), kmDriven: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="flex-1 rounded-md border border-gray-200 px-2 py-1 text-xs" />
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    {/* Save / Cancel */}
-                                    <div className="flex gap-2 mt-2">
-                                        <button onClick={cancelEditApiLead} className="flex-1 px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-200 transition-all">Cancel</button>
-                                        <button onClick={saveEditApiLead} className="flex-1 px-3 py-2 bg-[#1B1B19] text-white rounded-lg text-xs font-bold hover:bg-black transition-all flex items-center justify-center gap-1.5 shadow-sm"><Save size={14}/> Save</button>
-                                    </div>
-                                </div>
-                            ) : (
-                                /* ─── VIEW MODE ─── */
-                                <>
-                                     <div className={`flex flex-col gap-1 pr-8 ${isExisting ? 'mt-6' : ''}`}>
-                                        <button
-                                            onClick={() => navigate(`/contact/${lead._id}`)}
-                                            className="font-bold text-lg text-gray-900 hover:text-indigo-600 text-left leading-tight"
-                                        >
-                                            {lead.name}
+                        const isEditing = editingApiLeadId === lead._id;
+                        const isExisting = lead.existingInCrm === true;
+                        return (
+                            <div key={lead._id} className={`bg-white rounded-xl border shadow-sm p-5 hover:shadow-md transition-shadow flex flex-col gap-4 h-fit relative ${isEditing ? 'border-indigo-300 ring-2 ring-indigo-100' : isExisting ? 'border-amber-200 ring-1 ring-amber-50' : 'border-gray-200'}`}>
+                                <div className="absolute top-4 right-4 flex items-center gap-3">
+                                    <span className="text-[10px] font-bold text-gray-300">#{(currentPage - 1) * pageSize + paginatedLeads.indexOf(lead) + 1}</span>
+                                    {!isEditing && (
+                                        <button onClick={() => startEditApiLead(lead)} className="p-1 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-all" title="Edit">
+                                            <Edit3 size={14} />
                                         </button>
-                                        <a href={`tel:${lead.phone}`} className="text-sm text-indigo-600 font-medium flex items-center gap-1.5 hover:underline w-fit">
-                                            <Phone size={14}/> {lead.phone}
-                                        </a>
-                                    </div>
-
-                                    {(lead.place || lead.designation || lead.leadOrigin) && (
-                                        <div className="flex flex-col gap-2 p-3 bg-gray-50 rounded-lg text-xs">
-                                            {lead.place && <div className="flex items-center justify-between"><span className="text-gray-500">Place</span><span className="font-bold text-gray-700">{lead.place}</span></div>}
-                                            {lead.designation && <div className="flex items-center justify-between"><span className="text-gray-500">Designation</span><span className="font-bold text-gray-700">{lead.designation}</span></div>}
-                                            {lead.leadOrigin && <div className="flex items-center justify-between"><span className="text-gray-500">Source</span><span className="font-bold text-gray-700">{lead.leadOrigin}</span></div>}
-                                        </div>
                                     )}
-
-                                    {/* Assigned User Display */}
-                                    {lead.assignedTo && (
-                                        <div className="flex items-center gap-2 text-xs">
-                                            <div className="h-5 w-5 rounded-full bg-indigo-100 flex items-center justify-center text-[9px] font-bold text-indigo-600">
-                                                {typeof lead.assignedTo === 'object' ? lead.assignedTo?.username?.charAt(0) : '?'}
-                                            </div>
-                                            <span className="font-medium text-gray-600">
-                                                {typeof lead.assignedTo === 'object' ? lead.assignedTo?.username : 'Assigned'}
-                                            </span>
-                                        </div>
-                                    )}
-
-                                    {lead.carDetails && lead.carDetails.length > 0 && (
-                                        <div className="flex flex-col gap-2">
-                                            <span className="text-[10px] font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1"><Car size={12}/> Vehicles ({lead.carDetails.length})</span>
-                                            {lead.carDetails.map((car, idx) => (
-                                                <div key={idx} className="text-xs p-2.5 rounded-lg border border-indigo-50 bg-indigo-50/30 flex flex-col gap-1">
-                                                    <span className="font-bold text-indigo-900 capitalize">{car.intent}</span>
-                                                    {car.wantedCar && car.intent !== 'selling' && (
-                                                        <div className="text-gray-600">Want: <span className="font-medium text-gray-900 truncate block">{car.wantedCar.brandName} {car.wantedCar.modelName}</span></div>
-                                                    )}
-                                                    {car.ownedCar && car.intent !== 'buying' && (
-                                                        <div className="text-gray-600">
-                                                            Own: <span className="font-medium text-gray-900 truncate block">{car.ownedCar.brandName} {car.ownedCar.modelName}</span>
-                                                            {(car.ownedCar.year || car.ownedCar.kmDriven) && (
-                                                                <div className="flex gap-2 text-[10px] mt-1 text-gray-500 font-medium">
-                                                                    {car.ownedCar.year && <span className="bg-white px-1.5 py-0.5 rounded border border-gray-100">{car.ownedCar.year}</span>}
-                                                                    {car.ownedCar.kmDriven && <span className="bg-white px-1.5 py-0.5 rounded border border-gray-100">{car.ownedCar.kmDriven} km</span>}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    {lead.notes && lead.notes.length > 0 && (
-                                        <div className="flex flex-col gap-1.5">
-                                            <span className="text-[10px] font-bold text-gray-700 uppercase tracking-wider">Latest Note</span>
-                                            <div className="text-xs text-gray-700 bg-yellow-50/50 p-2.5 rounded-lg border border-yellow-100 italic line-clamp-3">
-                                                {lead.notes[lead.notes.length - 1]}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    <div className="mt-auto pt-4 border-t border-gray-100 flex items-center gap-2">
-                                        {isExisting && (
-                                             <div className="w-full mb-2 px-2.5 py-1.5 bg-amber-50 border border-amber-100 rounded-lg text-[10px] text-amber-700 font-medium leading-snug">
-                                                 New car details &amp; notes will be merged into the existing contact.
-                                             </div>
-                                         )}
-                                         <div className="flex items-center gap-2 w-full">
-                                         <button
-                                             onClick={() => startEditApiLead(lead)}
-                                             className="px-3 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100 transition-all font-bold text-xs flex items-center gap-1.5 border border-gray-200"
-                                         >
-                                             <Edit3 size={14}/> Edit
-                                         </button>
-                                         <button 
-                                             onClick={() => {
-                                                 if (window.confirm('Delete this pending lead?')) {
-                                                     deleteApiLead(lead._id!);
-                                                 }
-                                             }}
-                                             className="px-3 py-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 transition-all font-bold text-xs"
-                                         >
-                                             Delete
-                                         </button>
-                                         <button 
-                                             onClick={() => {
-                                                 const msg = isExisting
-                                                     ? 'This contact already exists in CRM. New car details and notes will be merged into them. Continue?'
-                                                     : 'Approve this lead and add to CRM?';
-                                                 if (window.confirm(msg)) {
-                                                     approveApiLead(lead._id!);
-                                                 }
-                                             }}
-                                             className={`flex-1 px-3 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-sm ${
-                                                 isExisting
-                                                     ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
-                                                     : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-100'
-                                             }`}
-                                         >
-                                             {isExisting ? (
-                                                 <><AlertTriangle size={14}/> Update in CRM</>
-                                             ) : (
-                                                 <><CheckCircle2 size={16}/> Add to CRM</>
-                                             )}
-                                         </button>
-                                         </div>
-                                     </div>
-                                </>
-                            )}
-                        </div>
-                        );
-                    })}
-                </div>
-            ) : (
-            <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-350px)]">
-                {/* Mobile Card View */}
-                <div className="md:hidden flex flex-col gap-4 p-4 bg-gray-50/30">
-                    {paginatedLeads.map(lead => (
-                        <div key={lead._id} className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm flex flex-col gap-3">
-                            <div className="flex justify-between items-start">
-                                <div className="flex flex-col">
-                                    <button
-                                        onClick={() => navigate(`/contact/${lead._id}`)}
-                                        className="font-bold text-base text-gray-900 hover:text-indigo-600 text-left"
-                                    >
-                                        {lead.name}
-                                    </button>
-                                    <span className="text-xs text-gray-500">{lead.place || 'No Place'}</span>
-                                </div>
-                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${lead.leadType === 'hot' ? 'bg-orange-50 text-orange-600 border border-orange-100' :
-                                    lead.leadType === 'warm' ? 'bg-yellow-50 text-yellow-600 border border-yellow-100' :
-                                        'bg-blue-50 text-blue-600 border border-blue-100'
-                                    }`}>
-                                    {lead.leadType}
-                                </span>
-                            </div>
-
-                            <div className="flex flex-col gap-1.5 text-xs text-gray-600">
-                                <div className="flex items-center gap-2">
-                                    <Briefcase size={12} className="text-gray-400" />
-                                    <span>{lead.designation || 'No Designation'}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <Calendar size={12} className="text-gray-400" />
-                                    <span>{lead.createdAt ? format(parseISO(lead.createdAt), 'MMM d, yyyy') : 'N/A'}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <UserIcon size={12} className="text-gray-400" />
-                                    <span>{typeof lead.assignedTo === 'object' ? lead.assignedTo?.username : 'Unassigned'}</span>
-                                </div>
-                            </div>
-
-                            <div className="flex flex-wrap gap-1">
-                                {lead.tags.map((tag, i) => (
-                                    <span key={i} className="px-1.5 py-0.5 bg-gray-50 text-gray-500 border border-gray-100 rounded text-[9px] font-medium">
-                                        {tag}
-                                    </span>
-                                ))}
-                            </div>
-
-                            <div className="flex items-center justify-between border-t border-gray-50 pt-3 mt-1">
-                                <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${lead.status === 'booking_confirmed' || lead.status === 'deal_closed' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
-                                    'bg-gray-100 text-gray-600 border border-gray-200'
-                                    }`}>
-                                    {lead.status.replace('_', ' ')}
-                                </span>
-                                <div className="flex gap-2">
-                                    <a
-                                        href={`tel:${lead.phone}`}
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-sm"
-                                    >
-                                        <Phone size={12} /> Call
-                                    </a>
-                                    <button
-                                        onClick={() => navigate(`/contact/${lead._id}`)}
-                                        className="px-3 py-1.5 bg-[#1B1B19] text-white rounded-lg text-[10px] font-bold uppercase tracking-wider"
-                                    >
-                                        View
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-
-                {/* Desktop Table View */}
-                <table className="hidden md:table w-full text-left border-collapse">
-                    <thead className="bg-gray-50/50 border-b border-gray-100 sticky top-0 z-10">
-                        <tr>
-                            <th className="p-4 w-10 border-r border-gray-100 text-center bg-gray-50/50">
-                                <input
-                                    type="checkbox"
-                                    checked={selectedIds.length === filteredLeads.length && filteredLeads.length > 0}
-                                    onChange={e => handleSelectAll(e.target.checked)}
-                                    className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                />
-                            </th>
-                            <th className="p-4 text-[10px] font-bold text-gray-700 uppercase tracking-wider bg-gray-50/50 w-8">#</th>
-                            <th className="p-4 text-xs font-bold text-gray-700 uppercase tracking-wider bg-gray-50/50">Contact Name</th>
-                            <th className="p-4 text-xs font-bold text-gray-700 uppercase tracking-wider bg-gray-50/50">Phone</th>
-                            <th className="p-4 text-xs font-bold text-gray-700 uppercase tracking-wider bg-gray-50/50">Type</th>
-                            <th className="p-4 text-xs font-bold text-gray-700 uppercase tracking-wider bg-gray-50/50">Status</th>
-                            <th className="p-4 text-xs font-bold text-gray-700 uppercase tracking-wider bg-gray-50/50">Assigned To</th>
-                            <th className="p-4 text-xs font-bold text-gray-700 uppercase tracking-wider bg-gray-50/50">Tags</th>
-                            <th className="p-4 text-xs font-bold text-gray-700 uppercase tracking-wider bg-gray-50/50">Created</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
-                        {paginatedLeads.map(lead => (
-                            <tr key={lead._id} className="hover:bg-indigo-50/30 transition-all group">
-                                <td className="p-4">
                                     <input
                                         type="checkbox"
                                         checked={selectedIds.includes(lead._id!)}
                                         onChange={e => handleSelectLead(lead._id!, e.target.checked)}
-                                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                                     />
-                                </td>
-                                <td className="p-4 text-[10px] font-bold text-gray-300">
-                                    {(currentPage - 1) * pageSize + paginatedLeads.indexOf(lead) + 1}
-                                </td>
-                                <td className="p-4">
+                                </div>
+
+                                {/* Existing in CRM badge */}
+                                {isExisting && !isEditing && (
+                                    <div className="absolute top-4 left-4 flex items-center gap-1 px-2 py-0.5 bg-amber-50 border border-amber-200 rounded-full">
+                                        <AlertTriangle size={10} className="text-amber-500" />
+                                        <span className="text-[10px] font-bold text-amber-600">Existing Lead</span>
+                                    </div>
+                                )}
+
+                                {isEditing ? (
+                                    /* ─── EDIT MODE ─── */
+                                    <div className="flex flex-col gap-3 pr-8">
+                                        <div className="flex flex-col gap-1.5">
+                                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Name</label>
+                                            <input value={editData.name} onChange={e => setEditData(d => ({ ...d, name: e.target.value }))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-bold focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all" />
+                                        </div>
+                                        <div className="flex flex-col gap-1.5">
+                                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Phone</label>
+                                            <div className="flex gap-2">
+                                                <select
+                                                    value={parsePhoneNumber(editData.phone || '').countryCode}
+                                                    onChange={(e) => {
+                                                        const { localNumber } = parsePhoneNumber(editData.phone || '');
+                                                        setEditData(d => ({ ...d, phone: `${e.target.value}${localNumber}` }));
+                                                    }}
+                                                    className="w-24 rounded-lg border border-gray-200 px-2 py-2 text-xs focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+                                                >
+                                                    <option value="">Select</option>
+                                                    {COUNTRIES.map(c => (
+                                                        <option key={`${c.iso}-${c.code}`} value={c.code}>
+                                                            {c.flag} {c.code}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <input
+                                                    value={parsePhoneNumber(editData.phone || '').localNumber}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value.replace(/\D/g, '');
+                                                        const { countryCode } = parsePhoneNumber(editData.phone || '');
+                                                        setEditData(d => ({ ...d, phone: `${countryCode}${val}` }));
+                                                    }}
+                                                    className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+                                                    placeholder="Number"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {/* Place with suggestions */}
+                                        <div className="flex flex-col gap-1.5 relative">
+                                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Place</label>
+                                            <input value={editData.place} onChange={e => setEditData(d => ({ ...d, place: e.target.value }))} onFocus={() => setEditFocus('place')} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all" />
+                                            {editFocus === 'place' && availablePlaces.filter(p => !editData.place || p.toLowerCase().includes(editData.place.toLowerCase())).length > 0 && (
+                                                <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-32 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                                                    {availablePlaces.filter(p => !editData.place || p.toLowerCase().includes(editData.place.toLowerCase())).map(p => (
+                                                        <button key={p} type="button" onMouseDown={() => setEditData(d => ({ ...d, place: p }))} className="w-full px-3 py-1.5 text-left text-sm hover:bg-indigo-50 transition-colors">{p}</button>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Designation with suggestions */}
+                                        <div className="flex flex-col gap-1.5 relative">
+                                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Designation</label>
+                                            <input value={editData.designation} onChange={e => setEditData(d => ({ ...d, designation: e.target.value }))} onFocus={() => setEditFocus('designation')} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all" />
+                                            {editFocus === 'designation' && availableDesignations.filter(d => !editData.designation || d.toLowerCase().includes(editData.designation.toLowerCase())).length > 0 && (
+                                                <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-32 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                                                    {availableDesignations.filter(d => !editData.designation || d.toLowerCase().includes(editData.designation.toLowerCase())).map(d => (
+                                                        <button key={d} type="button" onMouseDown={() => setEditData(dd => ({ ...dd, designation: d }))} className="w-full px-3 py-1.5 text-left text-sm hover:bg-indigo-50 transition-colors">{d}</button>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Lead Origin */}
+                                        <div className="flex flex-col gap-1.5">
+                                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Source</label>
+                                            <select value={editData.leadOrigin} onChange={e => setEditData(d => ({ ...d, leadOrigin: e.target.value }))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all">
+                                                <option value="">Select Origin</option>
+                                                <option value="whatsapp">WhatsApp</option><option value="insta">Instagram</option><option value="fb">Facebook</option>
+                                                <option value="walk-in">Walk-in</option><option value="tele">Tele Caller</option><option value="referral">Referral</option>
+                                                <option value="web">Website</option><option value="olx">OLX</option><option value="other">Other</option>
+                                            </select>
+                                        </div>
+
+                                        {/* Assign User */}
+                                        <div className="flex flex-col gap-1.5">
+                                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><UserIcon size={10} /> Assign To</label>
+                                            <select value={editData.assignedTo} onChange={e => setEditData(d => ({ ...d, assignedTo: e.target.value }))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all">
+                                                <option value="">Unassigned</option>
+                                                {users.map(u => <option key={u._id} value={u._id}>{u.username}</option>)}
+                                            </select>
+                                        </div>
+
+                                        {/* Vehicle Details */}
+                                        {(editData.carDetails?.length ?? 0) > 0 && (
+                                            <div className="flex flex-col gap-2 mt-1">
+                                                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><Car size={10} /> Vehicles</span>
+                                                {(editData.carDetails ?? []).map((car: CarDetail, idx: number) => (
+                                                    <div key={idx} className="p-3 rounded-lg border border-indigo-100 bg-indigo-50/20 flex flex-col gap-2">
+                                                        <select value={car.intent} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], intent: e.target.value as 'buying' | 'selling' | 'exchange' }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs">
+                                                            <option value="buying">Buying</option><option value="selling">Selling</option><option value="exchange">Exchange</option>
+                                                        </select>
+                                                        {car.intent !== 'selling' && (
+                                                            <div className="flex flex-col gap-1">
+                                                                <span className="text-[9px] font-bold text-gray-400 uppercase">Wanted Car</span>
+                                                                <div className="flex gap-1.5 relative">
+                                                                    <div className="flex-1 relative">
+                                                                        <input placeholder="Brand" value={car.wantedCar?.brandName || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], wantedCar: { ...(cd[idx].wantedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), brandName: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`wb${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
+                                                                        {editFocus === `wb${idx}` && availableBrandNames.filter(b => !car.wantedCar?.brandName || b.toLowerCase().includes((car.wantedCar?.brandName || '').toLowerCase())).length > 0 && (
+                                                                            <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                                                                                {availableBrandNames.filter(b => !car.wantedCar?.brandName || b.toLowerCase().includes((car.wantedCar?.brandName || '').toLowerCase())).map(b => (
+                                                                                    <button key={b} type="button" onMouseDown={() => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], wantedCar: { ...(cd[idx].wantedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), brandName: b } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{b}</button>
+                                                                                ))}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="flex-1 relative">
+                                                                        <input placeholder="Model" value={car.wantedCar?.modelName || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], wantedCar: { ...(cd[idx].wantedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), modelName: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`wm${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
+                                                                        {editFocus === `wm${idx}` && availableModelNames.filter(m => !car.wantedCar?.modelName || m.toLowerCase().includes((car.wantedCar?.modelName || '').toLowerCase())).length > 0 && (
+                                                                            <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                                                                                {availableModelNames.filter(m => !car.wantedCar?.modelName || m.toLowerCase().includes((car.wantedCar?.modelName || '').toLowerCase())).map(m => (
+                                                                                    <button key={m} type="button" onMouseDown={() => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], wantedCar: { ...(cd[idx].wantedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), modelName: m } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{m}</button>
+                                                                                ))}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        {car.intent !== 'buying' && (
+                                                            <div className="flex flex-col gap-1">
+                                                                <span className="text-[9px] font-bold text-gray-400 uppercase">Owned Car</span>
+                                                                <div className="flex gap-1.5 relative">
+                                                                    <div className="flex-1 relative">
+                                                                        <input placeholder="Brand" value={car.ownedCar?.brandName || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), brandName: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`ob${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
+                                                                        {editFocus === `ob${idx}` && availableBrandNames.filter(b => !car.ownedCar?.brandName || b.toLowerCase().includes((car.ownedCar?.brandName || '').toLowerCase())).length > 0 && (
+                                                                            <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                                                                                {availableBrandNames.filter(b => !car.ownedCar?.brandName || b.toLowerCase().includes((car.ownedCar?.brandName || '').toLowerCase())).map(b => (
+                                                                                    <button key={b} type="button" onMouseDown={() => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), brandName: b } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{b}</button>
+                                                                                ))}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="flex-1 relative">
+                                                                        <input placeholder="Model" value={car.ownedCar?.modelName || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), modelName: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`om${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
+                                                                        {editFocus === `om${idx}` && availableModelNames.filter(m => !car.ownedCar?.modelName || m.toLowerCase().includes((car.ownedCar?.modelName || '').toLowerCase())).length > 0 && (
+                                                                            <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                                                                                {availableModelNames.filter(m => !car.ownedCar?.modelName || m.toLowerCase().includes((car.ownedCar?.modelName || '').toLowerCase())).map(m => (
+                                                                                    <button key={m} type="button" onMouseDown={() => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), modelName: m } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{m}</button>
+                                                                                ))}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex gap-1.5">
+                                                                    <input placeholder="Year" value={car.ownedCar?.year || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), year: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="flex-1 rounded-md border border-gray-200 px-2 py-1 text-xs" />
+                                                                    <input placeholder="KM" value={car.ownedCar?.kmDriven || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), kmDriven: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="flex-1 rounded-md border border-gray-200 px-2 py-1 text-xs" />
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {/* Save / Cancel */}
+                                        <div className="flex gap-2 mt-2">
+                                            <button onClick={cancelEditApiLead} className="flex-1 px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-200 transition-all">Cancel</button>
+                                            <button onClick={saveEditApiLead} className="flex-1 px-3 py-2 bg-[#1B1B19] text-white rounded-lg text-xs font-bold hover:bg-black transition-all flex items-center justify-center gap-1.5 shadow-sm"><Save size={14} /> Save</button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    /* ─── VIEW MODE ─── */
+                                    <>
+                                        <div className={`flex flex-col gap-1 pr-8 ${isExisting ? 'mt-6' : ''}`}>
+                                            <button
+                                                onClick={() => navigate(`/contact/${lead._id}`)}
+                                                className="font-bold text-lg text-gray-900 hover:text-indigo-600 text-left leading-tight"
+                                            >
+                                                {lead.name}
+                                            </button>
+                                            <a href={`tel:${lead.phone}`} className="text-sm text-indigo-600 font-medium flex items-center gap-1.5 hover:underline w-fit">
+                                                <Phone size={14} /> {lead.phone}
+                                            </a>
+                                        </div>
+
+                                        {(lead.place || lead.designation || lead.leadOrigin) && (
+                                            <div className="flex flex-col gap-2 p-3 bg-gray-50 rounded-lg text-xs">
+                                                {lead.place && <div className="flex items-center justify-between"><span className="text-gray-500">Place</span><span className="font-bold text-gray-700">{lead.place}</span></div>}
+                                                {lead.designation && <div className="flex items-center justify-between"><span className="text-gray-500">Designation</span><span className="font-bold text-gray-700">{lead.designation}</span></div>}
+                                                {lead.leadOrigin && <div className="flex items-center justify-between"><span className="text-gray-500">Source</span><span className="font-bold text-gray-700">{lead.leadOrigin}</span></div>}
+                                            </div>
+                                        )}
+
+                                        {/* Assigned User Display */}
+                                        {lead.assignedTo && (
+                                            <div className="flex items-center gap-2 text-xs">
+                                                <div className="h-5 w-5 rounded-full bg-indigo-100 flex items-center justify-center text-[9px] font-bold text-indigo-600">
+                                                    {typeof lead.assignedTo === 'object' ? lead.assignedTo?.username?.charAt(0) : '?'}
+                                                </div>
+                                                <span className="font-medium text-gray-600">
+                                                    {typeof lead.assignedTo === 'object' ? lead.assignedTo?.username : 'Assigned'}
+                                                </span>
+                                            </div>
+                                        )}
+
+                                        {lead.carDetails && lead.carDetails.length > 0 && (
+                                            <div className="flex flex-col gap-2">
+                                                <span className="text-[10px] font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1"><Car size={12} /> Vehicles ({lead.carDetails.length})</span>
+                                                {lead.carDetails.map((car, idx) => (
+                                                    <div key={idx} className="text-xs p-2.5 rounded-lg border border-indigo-50 bg-indigo-50/30 flex flex-col gap-1">
+                                                        <span className="font-bold text-indigo-900 capitalize">{car.intent}</span>
+                                                        {car.wantedCar && car.intent !== 'selling' && (
+                                                            <div className="text-gray-600">Want: <span className="font-medium text-gray-900 truncate block">{car.wantedCar.brandName} {car.wantedCar.modelName}</span></div>
+                                                        )}
+                                                        {car.ownedCar && car.intent !== 'buying' && (
+                                                            <div className="text-gray-600">
+                                                                Own: <span className="font-medium text-gray-900 truncate block">{car.ownedCar.brandName} {car.ownedCar.modelName}</span>
+                                                                {(car.ownedCar.year || car.ownedCar.kmDriven) && (
+                                                                    <div className="flex gap-2 text-[10px] mt-1 text-gray-500 font-medium">
+                                                                        {car.ownedCar.year && <span className="bg-white px-1.5 py-0.5 rounded border border-gray-100">{car.ownedCar.year}</span>}
+                                                                        {car.ownedCar.kmDriven && <span className="bg-white px-1.5 py-0.5 rounded border border-gray-100">{car.ownedCar.kmDriven} km</span>}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {lead.notes && lead.notes.length > 0 && (
+                                            <div className="flex flex-col gap-1.5">
+                                                <span className="text-[10px] font-bold text-gray-700 uppercase tracking-wider">Latest Note</span>
+                                                <div className="text-xs text-gray-700 bg-yellow-50/50 p-2.5 rounded-lg border border-yellow-100 italic line-clamp-3">
+                                                    {lead.notes[lead.notes.length - 1]}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="mt-auto pt-4 border-t border-gray-100 flex items-center gap-2">
+                                            {isExisting && (
+                                                <div className="w-full mb-2 px-2.5 py-1.5 bg-amber-50 border border-amber-100 rounded-lg text-[10px] text-amber-700 font-medium leading-snug">
+                                                    New car details &amp; notes will be merged into the existing contact.
+                                                </div>
+                                            )}
+                                            <div className="flex items-center gap-2 w-full">
+                                                <button
+                                                    onClick={() => startEditApiLead(lead)}
+                                                    className="px-3 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100 transition-all font-bold text-xs flex items-center gap-1.5 border border-gray-200"
+                                                >
+                                                    <Edit3 size={14} /> Edit
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        if (window.confirm('Delete this pending lead?')) {
+                                                            deleteApiLead(lead._id!);
+                                                        }
+                                                    }}
+                                                    className="px-3 py-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 transition-all font-bold text-xs"
+                                                >
+                                                    Delete
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        const msg = isExisting
+                                                            ? 'This contact already exists in CRM. New car details and notes will be merged into them. Continue?'
+                                                            : 'Approve this lead and add to CRM?';
+                                                        if (window.confirm(msg)) {
+                                                            approveApiLead(lead._id!);
+                                                        }
+                                                    }}
+                                                    className={`flex-1 px-3 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-sm ${isExisting
+                                                            ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
+                                                            : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-100'
+                                                        }`}
+                                                >
+                                                    {isExisting ? (
+                                                        <><AlertTriangle size={14} /> Update in CRM</>
+                                                    ) : (
+                                                        <><CheckCircle2 size={16} /> Add to CRM</>
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            ) : (
+                <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-350px)]">
+                    {/* Mobile Card View */}
+                    <div className="md:hidden flex flex-col gap-4 p-4 bg-gray-50/30">
+                        {paginatedLeads.map(lead => (
+                            <div key={lead._id} className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm flex flex-col gap-3">
+                                <div className="flex justify-between items-start">
                                     <div className="flex flex-col">
                                         <button
                                             onClick={() => navigate(`/contact/${lead._id}`)}
-                                            className="font-bold text-sm text-gray-900 hover:text-indigo-600 text-left"
+                                            className="font-bold text-base text-gray-900 hover:text-indigo-600 text-left"
                                         >
                                             {lead.name}
                                         </button>
-                                        <span className="text-[10px] text-gray-700">
-                                            {lead.place || 'None'}
-                                        </span>
-                                        <div className="flex items-center gap-1 text-[11px] text-gray-700 mt-0.5">
-                                            <Briefcase size={10} />
-                                            <span>{lead.designation || 'None'}</span>
-                                        </div>
+                                        <span className="text-xs text-gray-500">{lead.place || 'No Place'}</span>
                                     </div>
-                                </td>
-                                <td className="p-4 text-sm text-gray-600">{lead.phone}</td>
-                                <td className="p-4">
                                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${lead.leadType === 'hot' ? 'bg-orange-50 text-orange-600 border border-orange-100' :
                                         lead.leadType === 'warm' ? 'bg-yellow-50 text-yellow-600 border border-yellow-100' :
                                             'bg-blue-50 text-blue-600 border border-blue-100'
                                         }`}>
                                         {lead.leadType}
                                     </span>
-                                </td>
-                                <td className="p-4">
+                                </div>
+
+                                <div className="flex flex-col gap-1.5 text-xs text-gray-600">
+                                    <div className="flex items-center gap-2">
+                                        <Briefcase size={12} className="text-gray-400" />
+                                        <span>{lead.designation || 'No Designation'}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Calendar size={12} className="text-gray-400" />
+                                        <span>{lead.createdAt ? format(parseISO(lead.createdAt), 'MMM d, yyyy') : 'N/A'}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <UserIcon size={12} className="text-gray-400" />
+                                        <span>{typeof lead.assignedTo === 'object' ? lead.assignedTo?.username : 'Unassigned'}</span>
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-wrap gap-1">
+                                    {lead.tags.map((tag, i) => (
+                                        <span key={i} className="px-1.5 py-0.5 bg-gray-50 text-gray-500 border border-gray-100 rounded text-[9px] font-medium">
+                                            {tag}
+                                        </span>
+                                    ))}
+                                </div>
+
+                                <div className="flex items-center justify-between border-t border-gray-50 pt-3 mt-1">
                                     <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${lead.status === 'booking_confirmed' || lead.status === 'deal_closed' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
                                         'bg-gray-100 text-gray-600 border border-gray-200'
                                         }`}>
                                         {lead.status.replace('_', ' ')}
                                     </span>
-                                </td>
-                                <td className="p-4">
-                                    <div className="flex items-center gap-2">
-                                        <div className="h-6 w-6 rounded-full bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-500">
-                                            {typeof lead.assignedTo === 'object' ? lead.assignedTo?.username?.charAt(0) : '?'}
-                                        </div>
-                                        <span className="text-xs font-medium text-gray-700">
-                                            {typeof lead.assignedTo === 'object' ? lead.assignedTo?.username : 'Unassigned'}
-                                        </span>
+                                    <div className="flex gap-2">
+                                        <a
+                                            href={`tel:${lead.phone}`}
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-sm"
+                                        >
+                                            <Phone size={12} /> Call
+                                        </a>
+                                        <button
+                                            onClick={() => navigate(`/contact/${lead._id}`)}
+                                            className="px-3 py-1.5 bg-[#1B1B19] text-white rounded-lg text-[10px] font-bold uppercase tracking-wider"
+                                        >
+                                            View
+                                        </button>
                                     </div>
-                                </td>
-                                <td className="p-4">
-                                    <div className="flex flex-wrap gap-1 max-w-[150px]">
-                                        {lead.tags.length > 0 ? lead.tags.map((tag, i) => (
-                                            <span key={i} className="px-1.5 py-0.5 bg-gray-50 text-gray-500 border border-gray-100 rounded text-[9px] font-medium">
-                                                {tag}
-                                            </span>
-                                        )) : <span className="text-[9px] text-gray-300 italic">No tags</span>}
-                                    </div>
-                                </td>
-                                <td className="p-4 text-[10px] text-gray-500 whitespace-nowrap">
-                                    {lead.createdAt ? format(parseISO(lead.createdAt), 'MMM d, yyyy') : 'N/A'}
-                                </td>
-                            </tr>
+                                </div>
+                            </div>
                         ))}
-                    </tbody>
-                </table>
-            </div>
+                    </div>
+
+                    {/* Desktop Table View */}
+                    <table className="hidden md:table w-full text-left border-collapse">
+                        <thead className="bg-gray-50/50 border-b border-gray-100 sticky top-0 z-10">
+                            <tr>
+                                <th className="p-4 w-10 border-r border-gray-100 text-center bg-gray-50/50">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedIds.length === filteredLeads.length && filteredLeads.length > 0}
+                                        onChange={e => handleSelectAll(e.target.checked)}
+                                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                    />
+                                </th>
+                                <th className="p-4 text-[10px] font-bold text-gray-700 uppercase tracking-wider bg-gray-50/50 w-8">#</th>
+                                <th className="p-4 text-xs font-bold text-gray-700 uppercase tracking-wider bg-gray-50/50">Contact Name</th>
+                                <th className="p-4 text-xs font-bold text-gray-700 uppercase tracking-wider bg-gray-50/50">Phone</th>
+                                <th className="p-4 text-xs font-bold text-gray-700 uppercase tracking-wider bg-gray-50/50">Type</th>
+                                <th className="p-4 text-xs font-bold text-gray-700 uppercase tracking-wider bg-gray-50/50">Status</th>
+                                <th className="p-4 text-xs font-bold text-gray-700 uppercase tracking-wider bg-gray-50/50">Assigned To</th>
+                                <th className="p-4 text-xs font-bold text-gray-700 uppercase tracking-wider bg-gray-50/50">Tags</th>
+                                <th className="p-4 text-xs font-bold text-gray-700 uppercase tracking-wider bg-gray-50/50">Created</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                            {paginatedLeads.map(lead => (
+                                <tr key={lead._id} className="hover:bg-indigo-50/30 transition-all group">
+                                    <td className="p-4">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedIds.includes(lead._id!)}
+                                            onChange={e => handleSelectLead(lead._id!, e.target.checked)}
+                                            className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                        />
+                                    </td>
+                                    <td className="p-4 text-[10px] font-bold text-gray-300">
+                                        {(currentPage - 1) * pageSize + paginatedLeads.indexOf(lead) + 1}
+                                    </td>
+                                    <td className="p-4">
+                                        <div className="flex flex-col">
+                                            <button
+                                                onClick={() => navigate(`/contact/${lead._id}`)}
+                                                className="font-bold text-sm text-gray-900 hover:text-indigo-600 text-left"
+                                            >
+                                                {lead.name}
+                                            </button>
+                                            <span className="text-[10px] text-gray-700">
+                                                {lead.place || 'None'}
+                                            </span>
+                                            <div className="flex items-center gap-1 text-[11px] text-gray-700 mt-0.5">
+                                                <Briefcase size={10} />
+                                                <span>{lead.designation || 'None'}</span>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td className="p-4 text-sm text-gray-600">{lead.phone}</td>
+                                    <td className="p-4">
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${lead.leadType === 'hot' ? 'bg-orange-50 text-orange-600 border border-orange-100' :
+                                            lead.leadType === 'warm' ? 'bg-yellow-50 text-yellow-600 border border-yellow-100' :
+                                                'bg-blue-50 text-blue-600 border border-blue-100'
+                                            }`}>
+                                            {lead.leadType}
+                                        </span>
+                                    </td>
+                                    <td className="p-4">
+                                        <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${lead.status === 'booking_confirmed' || lead.status === 'deal_closed' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                                            'bg-gray-100 text-gray-600 border border-gray-200'
+                                            }`}>
+                                            {lead.status.replace('_', ' ')}
+                                        </span>
+                                    </td>
+                                    <td className="p-4">
+                                        <div className="flex items-center gap-2">
+                                            <div className="h-6 w-6 rounded-full bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-500">
+                                                {typeof lead.assignedTo === 'object' ? lead.assignedTo?.username?.charAt(0) : '?'}
+                                            </div>
+                                            <span className="text-xs font-medium text-gray-700">
+                                                {typeof lead.assignedTo === 'object' ? lead.assignedTo?.username : 'Unassigned'}
+                                            </span>
+                                        </div>
+                                    </td>
+                                    <td className="p-4">
+                                        <div className="flex flex-wrap gap-1 max-w-[150px]">
+                                            {lead.tags.length > 0 ? lead.tags.map((tag, i) => (
+                                                <span key={i} className="px-1.5 py-0.5 bg-gray-50 text-gray-500 border border-gray-100 rounded text-[9px] font-medium">
+                                                    {tag}
+                                                </span>
+                                            )) : <span className="text-[9px] text-gray-300 italic">No tags</span>}
+                                        </div>
+                                    </td>
+                                    <td className="p-4 text-[10px] text-gray-500 whitespace-nowrap">
+                                        {lead.createdAt ? format(parseISO(lead.createdAt), 'MMM d, yyyy') : 'N/A'}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
             )}
             {/* Pagination Sidebar/Footer */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 border-t border-gray-100 bg-gray-50/50">

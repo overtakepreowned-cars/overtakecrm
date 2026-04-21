@@ -27,6 +27,7 @@ interface LeadsContextType {
     bulkDeleteLeads: (ids: string[]) => Promise<void>;
     bulkAssignLeads: (ids: string[], userId: string) => Promise<void>;
     bulkUpdateLeads: (ids: string[], updates?: Partial<Lead>, addTags?: string[], removeTags?: string[]) => Promise<void>;
+    bulkUpdatePhonePrefix: (ids: string[], prefix: string) => Promise<void>;
     completeFollowup: (leadId: string, note?: string, result?: 'responded' | 'not_responded') => Promise<void>;
 }
 
@@ -321,6 +322,17 @@ export function LeadsProvider({ children }: { children: React.ReactNode }) {
         } catch (err) { console.error('Error bulk updating leads', err); }
     };
 
+    const bulkUpdatePhonePrefix = async (ids: string[], prefix: string) => {
+        try {
+            const res = await fetch('/api/leads/bulk-prefix', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids, prefix })
+            });
+            if (res.ok) await fetchData();
+        } catch (err) { console.error('Error bulk updating phone prefixes', err); }
+    };
+
     const completeFollowup = async (leadId: string, note?: string, status: 'responded' | 'not_responded' | 'rescheduled' = 'responded') => {
         const lead = leads.find(l => l._id === leadId);
         if (!lead || !lead.followupDate) return;
@@ -356,7 +368,7 @@ export function LeadsProvider({ children }: { children: React.ReactNode }) {
             updateApiLead, deleteApiLead, approveApiLead,
             addUser, updateUser, deleteUser, addSmartList, deleteSmartList,
             addTag, deleteTag,
-            bulkDeleteLeads, bulkAssignLeads, bulkUpdateLeads,
+            bulkDeleteLeads, bulkAssignLeads, bulkUpdateLeads, bulkUpdatePhonePrefix,
             completeFollowup
         }}>
             {children}

@@ -1,5 +1,6 @@
 import Lead from '../models/Lead.js';
 import ApiLead from '../models/ApiLead.js';
+import * as phoneUtils from '../utils/phoneUtils.js';
 
 export const getLeads = async (req, res, next) => {
     try {
@@ -25,10 +26,7 @@ export const createLead = async (req, res, next) => {
     try {
         let { phone } = req.body;
         if (phone) {
-            let rawPhone = String(phone).trim();
-            if (rawPhone.startsWith('+91')) rawPhone = rawPhone.substring(3);
-            else if (rawPhone.startsWith('91') && rawPhone.length > 10) rawPhone = rawPhone.substring(2);
-            phone = rawPhone.replace(/\D/g, '');
+            phone = String(phone).trim();
             req.body.phone = phone;
 
             const existingLead = await Lead.findOne({ phone: phone });
@@ -54,10 +52,7 @@ export const updateLead = async (req, res, next) => {
         const updates = req.body;
 
         if (updates.phone) {
-            let rawPhone = String(updates.phone).trim();
-            if (rawPhone.startsWith('+91')) rawPhone = rawPhone.substring(3);
-            else if (rawPhone.startsWith('91') && rawPhone.length > 10) rawPhone = rawPhone.substring(2);
-            updates.phone = rawPhone.replace(/\D/g, '');
+            updates.phone = String(updates.phone).trim();
 
             const existingWithPhone = await Lead.findOne({
                 phone: updates.phone,
@@ -152,10 +147,7 @@ export const updateApiLead = async (req, res, next) => {
         const leadId = req.params.id;
         const updates = req.body;
         if (updates.phone) {
-            let rawPhone = String(updates.phone).trim();
-            if (rawPhone.startsWith('+91')) rawPhone = rawPhone.substring(3);
-            else if (rawPhone.startsWith('91') && rawPhone.length > 10) rawPhone = rawPhone.substring(2);
-            updates.phone = rawPhone.replace(/\D/g, '');
+            updates.phone = String(updates.phone).trim();
 
             const existingWithPhone = await ApiLead.findOne({
                 phone: updates.phone,
@@ -184,7 +176,7 @@ export const approveApiLead = async (req, res, next) => {
         if (!stagedLead) return res.status(404).json({ message: 'API Lead not found' });
 
         const existingInCRM = await Lead.findOne({ phone: stagedLead.phone.trim() });
-        
+
         if (existingInCRM) {
             const incomingCars = stagedLead.carDetails || [];
             for (const incoming of incomingCars) {
@@ -217,6 +209,10 @@ export const approveApiLead = async (req, res, next) => {
         }
 
         const leadData = { ...stagedLead };
+        if (leadData.countryCode && leadData.phone) {
+            leadData.phone = `${leadData.countryCode}${leadData.phone}`;
+        }
+        delete leadData.countryCode;
         delete leadData._id;
         delete leadData.createdAt;
         delete leadData.updatedAt;
@@ -226,5 +222,39 @@ export const approveApiLead = async (req, res, next) => {
         await newLead.save();
         await ApiLead.findByIdAndDelete(req.params.id);
         res.json({ merged: false, lead: newLead });
+    } catch (error) { next(error); }
+};
+
+export const bulkUpdatePhonePrefix = async (req, res, next) => {
+    try {
+        const { ids, prefix } = req.body;
+        if (prefix === undefined) return res.status(400).json({ message: 'Prefix is required' });
+
+        const leadsToUpdate = await Lead.find({ _id: { $in: ids } });
+        let updatedCount = 0;
+        let skippedCount = 0;
+
+        for (const lead of leadsToUpdate) {
+            const { localNumber } = phoneUtils.parsePhoneNumber(lead.phone);
+            const newPhone = `${prefix}${localNumber}`;
+
+            // Check for collision if changing
+            if (newPhone !== lead.phone) {
+                const existing = await Lead.findOne({ phone: newPhone, _id: { $ne: lead._id } });
+                if (existing) {
+                    skippedCount++;
+                    continue;
+                }
+                lead.phone = newPhone;
+                await lead.save();
+                updatedCount++;
+            }
+        }
+
+        res.json({ 
+            message: 'Bulk prefix update complete', 
+            updatedCount, 
+            skippedCount 
+        });
     } catch (error) { next(error); }
 };

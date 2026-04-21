@@ -381,13 +381,23 @@ router.post('/webhooks/leads', async (req, res, next) => {
         let phone = null;
         
         if (rawPhone) {
-            if (rawPhone.startsWith('+91')) {
-                rawPhone = rawPhone.substring(3);
-            } else if (rawPhone.startsWith('91') && rawPhone.length > 10) {
-                rawPhone = rawPhone.substring(2);
+            let digits = rawPhone.replace(/\D/g, '');
+            const hasInitialPlus = rawPhone.trim().startsWith('+');
+            const commonPrefixes = ['91', '971', '966', '974', '965', '968', '973', '20', '962', '961', '964', '963', '967', '970', '972', '98', '90', '1', '44'];
+            
+            if (hasInitialPlus) {
+                phone = '+' + digits;
+            } else {
+                let detected = false;
+                for (const prefix of commonPrefixes) {
+                    if (digits.startsWith(prefix) && digits.length > 8) {
+                        phone = '+' + digits;
+                        detected = true;
+                        break;
+                    }
+                }
+                if (!detected) phone = digits;
             }
-            phone = rawPhone.replace(/\D/g, '');
-            if (!phone) phone = null;
         }
 
         if (!name || !phone) {

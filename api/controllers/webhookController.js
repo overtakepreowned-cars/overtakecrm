@@ -13,6 +13,7 @@ export const captureWebhookLead = async (req, res, next) => {
         
         let rawPhone = leadinfo.whatsapp_phone ? String(leadinfo.whatsapp_phone).trim() : (leadinfo.phone ? String(leadinfo.phone).trim() : '');
         let phone = null;
+        let detectedCountryCode = '';
         if (rawPhone) {
             let digits = rawPhone.replace(/\D/g, '');
             const hasInitialPlus = rawPhone.trim().startsWith('+');
@@ -21,24 +22,26 @@ export const captureWebhookLead = async (req, res, next) => {
             const commonPrefixes = ['91', '971', '966', '974', '965', '968', '973', '20', '962', '961', '964', '963', '967', '970', '972', '98', '90', '1', '44'];
             
             if (hasInitialPlus) {
-                // If it already has a +, keep it as is (standard international)
-                phone = '+' + digits;
+                // If it already has a +, find the matching prefix to store separately
+                const matched = commonPrefixes.find(p => digits.startsWith(p));
+                if (matched) {
+                    detectedCountryCode = '+' + matched;
+                    phone = digits.slice(matched.length);
+                } else {
+                    phone = digits;
+                }
             } else {
-                // Try to see if it starts with a known prefix and has a reasonable length for that country
-                // This is a heuristic to help auto-detect. 
-                // If no clear match, we leave it without a '+' so the UI knows it needs manual selection.
                 let detected = false;
                 for (const prefix of commonPrefixes) {
                     if (digits.startsWith(prefix) && digits.length > 8) {
-                        phone = '+' + digits;
+                        detectedCountryCode = '+' + prefix;
+                        phone = digits.slice(prefix.length);
                         detected = true;
                         break;
                     }
                 }
                 
                 if (!detected) {
-                    // No prefix detected, store digits only. 
-                    // The CRM UI will see no '+' and prompt user to select country.
                     phone = digits;
                 }
             }
@@ -119,6 +122,7 @@ export const captureWebhookLead = async (req, res, next) => {
         const leadData = {
            name: name.trim(),
            phone: phone.trim(),
+           countryCode: detectedCountryCode,
            leadOrigin: finalOrigin,
            notes: notesArray,
            carDetails: carDetailsArray,
