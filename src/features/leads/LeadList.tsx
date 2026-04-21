@@ -282,7 +282,12 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                 const searchPhone = smartListFilter.phone;
                 const searchCC = smartListFilter.countryCode;
 
-                if (searchCC && !lead.phone.startsWith(searchCC)) return false;
+                if (searchCC === 'none') {
+                    if (lead.phone.startsWith('+')) return false;
+                } else if (searchCC && !lead.phone.startsWith(searchCC)) {
+                    return false;
+                }
+
                 if (searchPhone) {
                     const localDigits = lead.phone.replace(searchCC || '', '');
                     if (!lead.phone.includes(searchPhone) && !localDigits.includes(searchPhone)) return false;
@@ -435,11 +440,16 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
             if (nameFilter && !lead.name.toLowerCase().includes(nameFilter.toLowerCase())) return false;
 
             // Ad-hoc phone logic
-            if (countryCodeFilter && !lead.phone.startsWith(countryCodeFilter)) return false;
+            if (countryCodeFilter === 'none') {
+                if (lead.phone.startsWith('+')) return false;
+            } else if (countryCodeFilter && !lead.phone.startsWith(countryCodeFilter)) {
+                return false;
+            }
+
             if (phoneFilter) {
                 const searchDigits = phoneFilter.replace(/\D/g, '');
                 const phoneDigits = lead.phone.replace(/\D/g, '');
-                const localDigits = lead.phone.replace(countryCodeFilter, '');
+                const localDigits = lead.phone.replace(countryCodeFilter === 'none' ? '' : countryCodeFilter, '');
                 const localPartialDigits = localDigits.replace(/\D/g, '');
 
                 const matchesFull = lead.phone.includes(phoneFilter);
@@ -596,7 +606,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
 
             return true;
         });
-    }, [leads, apiLeads, currentMode, activeSmartListId, smartLists, searchTerm, nameFilter, phoneFilter, placeFilter, designationFilter, tagFilterTags, dateFilter, statusFilter, leadTypeFilter, leadOriginFilter, assignedToFilter, paymentStatusFilter, bookMethodFilter, intentFilter, brandFilter, modelFilter, fuelTypeFilter, yearFilter, kmDrivenFilter, kmDrivenOp, amountFilter, amountOp]);
+    }, [leads, apiLeads, currentMode, activeSmartListId, smartLists, searchTerm, nameFilter, phoneFilter, countryCodeFilter, placeFilter, designationFilter, tagFilterTags, dateFilter, statusFilter, leadTypeFilter, leadOriginFilter, assignedToFilter, paymentStatusFilter, bookMethodFilter, intentFilter, brandFilter, modelFilter, fuelTypeFilter, yearFilter, kmDrivenFilter, kmDrivenOp, amountFilter, amountOp]);
 
     // Reset pagination when filters change
     useMemo(() => {
@@ -697,7 +707,8 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
         (fuelTypeFilter !== 'all' && !!fuelTypeFilter) ||
         !!yearFilter ||
         !!kmDrivenFilter ||
-        !!amountFilter;
+        !!amountFilter ||
+        !!countryCodeFilter;
 
 
     return (
@@ -1011,7 +1022,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                         )}
                         {bulkUpdateType === 'countryCode' && (
                             <div className="flex items-center gap-3 p-2 bg-white rounded-lg border border-indigo-100 animate-fadeIn overflow-x-auto no-scrollbar">
-                                <span className="text-xs font-bold text-gray-500 ml-2 whitespace-nowrap">Select Prefix:</span>
+                                <span className="text-xs font-bold text-gray-500 ml-2 whitespace-nowrap">Select Prefix to Apply:</span>
                                 <div className="flex gap-2 pb-1">
                                     {COUNTRIES.map(c => (
                                         <button
@@ -1067,11 +1078,12 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                     <select
                                         value={draftFilters.countryCode || ''}
                                         onChange={e => setDraftFilters(prev => ({ ...prev, countryCode: e.target.value }))}
-                                        className="text-[10px] w-20 px-2 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 outline-none transition-all appearance-none scrollbar-hide"
+                                        className="text-[10px] w-20 px-2 py-1.5 rounded-xl bg-white/10 border border-white/20 text-white focus:border-indigo-500 outline-none transition-all appearance-none scrollbar-hide font-bold cursor-pointer hover:bg-white/20"
+                                        title="Search by Prefix"
                                     >
-                                        <option value="">Any</option>
+                                        <option value="" className="bg-[#1B1B19]">Any</option>
                                         {COUNTRIES.map(c => (
-                                            <option key={`${c.iso}-${c.code}`} value={c.code}>
+                                            <option key={`${c.iso}-${c.code}`} value={c.code || 'none'} className="bg-[#1B1B19]">
                                                 {c.flag} {c.code || 'None'}
                                             </option>
                                         ))}
