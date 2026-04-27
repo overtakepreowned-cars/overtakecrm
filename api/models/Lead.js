@@ -37,7 +37,7 @@ const leadSchema = new mongoose.Schema({
     designation: { type: String, lowercase: true },
     leadOrigin: {
         type: String,
-        enum: ['whatsapp', 'insta', 'fb', 'walk-in', 'tele', 'referral', 'web', 'olx', 'other'],
+        enum: ['whatsapp', 'insta', 'fb', 'walk-in', 'tele', 'referral', 'web', 'olx', 'team-tech', 'other'],
         lowercase: true,
         default: 'other'
     },

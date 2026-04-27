@@ -54,7 +54,7 @@ export const captureWebhookLead = async (req, res, next) => {
         const existingMainLead = await Lead.findOne({ phone: phone.trim() });
         const existingInCrm = !!existingMainLead;
 
-        const validOrigins = ['whatsapp', 'insta', 'fb', 'walk-in', 'tele', 'referral', 'web', 'olx', 'other'];
+        const validOrigins = ['whatsapp', 'insta', 'fb', 'walk-in', 'tele', 'referral', 'web', 'olx', 'team-tech', 'other'];
         let finalOrigin = (leadOrigin || leadinfo.leadOrigin || 'other').toLowerCase();
         if (!validOrigins.includes(finalOrigin)) {
             finalOrigin = 'other';

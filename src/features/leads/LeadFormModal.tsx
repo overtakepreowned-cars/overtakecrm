@@ -418,6 +418,7 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
                         <option value="referral">Referral</option>
                         <option value="web">Web</option>
                         <option value="olx">OLX</option>
+                        <option value="team-tech">Team-Tech</option>
                         <option value="other">Other</option>
                     </select>
                 </div>

@@ -1188,6 +1188,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                     <option value="referral">Referral</option>
                                     <option value="web">Website</option>
                                     <option value="olx">OLX</option>
+                                    <option value="team-tech">Team-Tech</option>
                                     <option value="other">Other</option>
                                 </select>
                             </div>
@@ -1456,7 +1457,9 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                                 <option value="">Select Origin</option>
                                                 <option value="whatsapp">WhatsApp</option><option value="insta">Instagram</option><option value="fb">Facebook</option>
                                                 <option value="walk-in">Walk-in</option><option value="tele">Tele Caller</option><option value="referral">Referral</option>
-                                                <option value="web">Website</option><option value="olx">OLX</option><option value="other">Other</option>
+                                                <option value="web">Website</option><option value="olx">OLX</option>
+                                                <option value="team-tech">Team-Tech</option>
+                                                <option value="other">Other</option>
                                             </select>
                                         </div>
 
