@@ -13,6 +13,7 @@ import { UsersView } from './features/users/UsersView'
 import { LeadFormModal } from './features/leads/LeadFormModal'
 import { AdminLogin } from './features/admin/AdminLogin'
 import { LeadPage } from './features/leads/LeadPage'
+import { TagsView } from './features/tags/TagsView'
 
 // A wrapper component to provide the layout with Outlet for nested routes
 function AuthenticatedLayout({ onAddLead }: { onAddLead: () => void }) {
@@ -41,6 +42,7 @@ function AppContent() {
                 <Route path="/contact/:id" element={<LeadPage />} />
                 <Route path="/pipeline" element={<PipelineView />} />
                 <Route path="/followups" element={<FollowupsView />} />
+                <Route path="/tags" element={<TagsView />} />
 
                 {/* Admin Routes */}
                 {isAdmin && (
@@ -51,6 +53,7 @@ function AppContent() {
                     <Route path="/admin/contact/:id" element={<LeadPage />} />
                     <Route path="/admin/pipeline" element={<PipelineView />} />
                     <Route path="/admin/followups" element={<FollowupsView />} />
+                    <Route path="/admin/tags" element={<TagsView />} />
                     <Route path="/admin/report" element={<WorkingReport />} />
                     <Route path="/admin/users" element={<UsersView />} />
                   </>

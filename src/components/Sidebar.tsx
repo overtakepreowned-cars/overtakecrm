@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, GitMerge, CalendarCheck, BarChart3, UserCog } from 'lucide-react';
+import { LayoutDashboard, Users, GitMerge, CalendarCheck, BarChart3, UserCog, Tag } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { clsx } from 'clsx';
 import { useAuth } from '../context/AuthContext';
@@ -20,6 +20,7 @@ export function Sidebar({ isOpen, setSidebarOpen }: SidebarProps) {
         { id: 'contacts', label: 'Contacts', icon: Users },
         { id: 'pipeline', label: 'Pipeline', icon: GitMerge },
         { id: 'followups', label: 'Follow-ups', icon: CalendarCheck },
+        { id: 'tags', label: 'Tags', icon: Tag },
     ];
 
     if (isAdmin) {

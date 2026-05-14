@@ -128,7 +128,7 @@ export function LeadCard({ lead, onClick, onStatusChange }: LeadCardProps) {
                     {lead.tags.slice(0, 3).map((tag, idx) => (
                         <span key={idx} className="flex items-center gap-1 rounded-md bg-gray-50 px-2 py-0.5 text-[10px] font-bold text-gray-500 border border-gray-100">
                             <Tag size={10} />
-                            {tag}
+                            {typeof tag === 'string' ? tag : tag.name}
                         </span>
                     ))}
                     {lead.tags.length > 3 && <span className="text-[10px] text-gray-400">+{lead.tags.length - 3}</span>}

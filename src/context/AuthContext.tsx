@@ -4,6 +4,7 @@ import { User } from '../types';
 
 interface AuthContextType {
     user: User | null;
+    token: string | null;
     isAdmin: boolean;
     login: (username: string, password?: string) => Promise<boolean>;
     logout: () => void;
@@ -13,13 +14,12 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(() => {
-        // Hydrate from local storage on initial load
         if (typeof window !== 'undefined') {
             const storedUser = localStorage.getItem('authUser');
             if (storedUser) {
                 try {
                     return JSON.parse(storedUser);
-                } catch (_e) {
+                } catch {
                     return null;
                 }
             }
@@ -27,16 +27,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return null;
     });
 
+    const [token, setToken] = useState<string | null>(() => {
+        if (typeof window !== 'undefined') {
+            return localStorage.getItem('authToken');
+        }
+        return null;
+    });
+
     const isAdmin = user?.role === 'admin';
 
     useEffect(() => {
-        // Persist to local storage
         if (user) {
             localStorage.setItem('authUser', JSON.stringify(user));
         } else {
             localStorage.removeItem('authUser');
         }
     }, [user]);
+
+    useEffect(() => {
+        if (token) {
+            localStorage.setItem('authToken', token);
+        } else {
+            localStorage.removeItem('authToken');
+        }
+    }, [token]);
 
     const login = async (username: string, password?: string) => {
         try {
@@ -47,8 +61,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             });
 
             if (res.ok) {
-                const authenticatedUser = await res.json();
-                setUser(authenticatedUser);
+                const data = await res.json();
+                setUser(data.user);
+                setToken(data.token);
                 return true;
             }
             return false;
@@ -60,10 +75,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const logout = () => {
         setUser(null);
+        setToken(null);
     };
 
     return (
-        <AuthContext.Provider value={{ user, isAdmin, login, logout }}>
+        <AuthContext.Provider value={{ user, token, isAdmin, login, logout }}>
             {children}
         </AuthContext.Provider>
     );

@@ -3,38 +3,53 @@ import { X, Plus } from 'lucide-react';
 import { clsx } from 'clsx';
 
 interface TagInputProps {
-    selectedTags: string[];
+    selectedTags: (string | { _id: string, name: string })[];
     onTagsChange: (tags: string[]) => void;
-    availableTags: string[];
+    availableTags: { _id: string, name: string }[];
     placeholder?: string;
     className?: string;
     isDark?: boolean;
+    onCreateTag?: (name: string) => Promise<void>;
 }
 
-export function TagInput({ selectedTags, onTagsChange, availableTags, placeholder = "Add tags...", className = "", isDark = false }: TagInputProps) {
+export function TagInput({ selectedTags, onTagsChange, availableTags, placeholder = "Add tags...", className = "", isDark = false, onCreateTag }: TagInputProps) {
     const [input, setInput] = useState('');
     const [showSuggestions, setShowSuggestions] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
 
+    const getTagName = (tag: string | { name: string }) => typeof tag === 'string' ? tag : tag.name;
+    const getTagId = (tag: string | { _id: string }) => typeof tag === 'string' ? tag : tag._id;
+
     const suggestions = useMemo(() => {
         if (!input) return [];
         return availableTags.filter(tag =>
-            tag.toLowerCase().includes(input.toLowerCase()) &&
-            !selectedTags.includes(tag)
+            tag.name.toLowerCase().includes(input.toLowerCase()) &&
+            !selectedTags.some(t => getTagId(t) === tag._id)
         );
     }, [input, availableTags, selectedTags]);
 
-    const handleAddTag = (tag: string) => {
-        const normalizedTag = tag.trim().toLowerCase();
-        if (normalizedTag && !selectedTags.includes(normalizedTag)) {
-            onTagsChange([...selectedTags, normalizedTag]);
+    const handleAddTag = async (tag: string | { _id: string, name: string }) => {
+        const tagName = typeof tag === 'string' ? tag.trim().toLowerCase() : tag.name;
+
+        if (tagName && !selectedTags.some(t => getTagName(t) === tagName)) {
+            // If it's a new string tag and we have a creation handler, call it
+            if (typeof tag === 'string' && onCreateTag) {
+                try {
+                    await onCreateTag(tagName);
+                } catch (err) {
+                    console.error('Failed to create tag globally:', err);
+                    // We still add it to the local list so the form works
+                }
+            }
+            onTagsChange([...selectedTags.map(t => getTagName(t)), tagName]);
         }
         setInput('');
         setShowSuggestions(false);
     };
 
-    const handleRemoveTag = (tag: string) => {
-        onTagsChange(selectedTags.filter(t => t !== tag));
+    const handleRemoveTag = (tag: string | { name: string }) => {
+        const nameToRemove = getTagName(tag);
+        onTagsChange(selectedTags.map(t => getTagName(t)).filter(t => t !== nameToRemove));
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -67,13 +82,13 @@ export function TagInput({ selectedTags, onTagsChange, availableTags, placeholde
                     : "bg-white border border-gray-200 focus-within:ring-2 focus-within:ring-gray-100 focus-within:border-gray-400"
             )}>
                 {selectedTags.map(tag => (
-                    <span key={tag} className={clsx(
+                    <span key={getTagId(tag)} className={clsx(
                         "flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border",
                         isDark 
                             ? "bg-white/10 text-white border-white/10" 
                             : "bg-[#1B1B19]/5 text-[#1B1B19] border-[#1B1B19]/10"
                     )}>
-                        {tag}
+                        {getTagName(tag)}
                         <button
                             type="button"
                             onClick={() => handleRemoveTag(tag)}
@@ -109,7 +124,7 @@ export function TagInput({ selectedTags, onTagsChange, availableTags, placeholde
                 )}>
                     {suggestions.map(suggestion => (
                         <button
-                            key={suggestion}
+                            key={suggestion._id}
                             type="button"
                             onClick={() => handleAddTag(suggestion)}
                             className={clsx(
@@ -119,14 +134,14 @@ export function TagInput({ selectedTags, onTagsChange, availableTags, placeholde
                                     : "text-gray-700 hover:bg-[#1B1B19]/5"
                             )}
                         >
-                            <span className="font-medium">{suggestion}</span>
+                            <span className="font-medium">{suggestion.name}</span>
                             <Plus size={12} className={clsx(
                                 "transition-colors",
                                 isDark ? "text-slate-600 group-hover:text-white" : "text-gray-300 group-hover:text-[#1B1B19]"
                             )} />
                         </button>
                     ))}
-                    {input.trim() && !availableTags.some(t => t.toLowerCase() === input.trim().toLowerCase()) && (
+                    {input.trim() && !availableTags.some(t => t.name.toLowerCase() === input.trim().toLowerCase()) && (
                         <button
                             type="button"
                             onClick={() => handleAddTag(input)}

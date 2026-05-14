@@ -10,16 +10,47 @@ export const getTags = async (req, res, next) => {
 
 export const createTag = async (req, res, next) => {
     try {
-        const tag = new Tag(req.body);
+        const { name } = req.body;
+        if (!name) return res.status(400).json({ message: 'Tag name is required' });
+        
+        const normalized = name.trim().toLowerCase();
+        const existing = await Tag.findOne({ name: normalized });
+        if (existing) return res.status(400).json({ message: 'Tag already exists' });
+        
+        const tag = new Tag({ name: normalized });
         await tag.save();
         res.status(201).json(tag);
     } catch (error) { next(error); }
 };
 
+export const updateTag = async (req, res, next) => {
+    try {
+        const tag = await Tag.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        res.json(tag);
+    } catch (error) { next(error); }
+};
+
 export const deleteTag = async (req, res, next) => {
     try {
-        await Tag.findByIdAndDelete(req.params.id);
-        res.json({ message: 'Deleted successfully' });
+        const tagId = req.params.id;
+        
+        // Delete the tag
+        await Tag.findByIdAndDelete(tagId);
+        
+        // Remove this tag from all leads
+        const Lead = (await import('../models/Lead.js')).default;
+        const ApiLead = (await import('../models/ApiLead.js')).default;
+        
+        await Lead.updateMany(
+            { tags: tagId },
+            { $pull: { tags: tagId } }
+        );
+        await ApiLead.updateMany(
+            { tags: tagId },
+            { $pull: { tags: tagId } }
+        );
+        
+        res.json({ message: 'Deleted successfully and removed from all leads' });
     } catch (error) { next(error); }
 };
 

@@ -1,43 +1,39 @@
-import User from '../models/User.js';
+import jwt from 'jsonwebtoken';
 
 export const login = async (req, res, next) => {
     try {
         const { username, password } = req.body;
-        if (!username || !password) {
-            return res.status(400).json({ message: 'Username and password are required' });
-        }
-        
-        let targetRole = '';
-        
+
         const adminUser = process.env.ADMIN_USERNAME;
         const adminPass = process.env.ADMIN_PASSWORD;
         const salesUser = process.env.SALES_USERNAME;
         const salesPass = process.env.SALES_PASSWORD;
 
+        let role = '';
+        let displayName = '';
+
         if (username === adminUser && password === adminPass) {
-            targetRole = 'admin';
+            role = 'admin';
+            displayName = 'Administrator';
         } else if (username === salesUser && password === salesPass) {
-            targetRole = 'sales';
+            role = 'sales';
+            displayName = 'Sales Team';
         } else {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
 
-        if (targetRole === 'admin') {
-            let user = await User.findOne({ role: 'admin' });
-            if (!user) {
-                user = {
-                    _id: 'default-admin-id',
-                    username: 'Administrator',
-                    role: 'admin'
-                };
+        const token = jwt.sign(
+            { role, username: displayName },
+            process.env.JWT_SECRET || 'fallback-secret-for-dev',
+            { expiresIn: '24h' }
+        );
+
+        res.json({
+            token,
+            user: {
+                username: displayName,
+                role: role
             }
-            return res.json(user);
-        } else if (targetRole === 'sales') {
-            return res.json({
-                _id: 'common-sales-rep',
-                username: 'Sales Team',
-                role: 'sales'
-            });
-        }
+        });
     } catch (error) { next(error); }
 };

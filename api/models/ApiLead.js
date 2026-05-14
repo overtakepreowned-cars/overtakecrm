@@ -32,7 +32,7 @@ const assignmentRecordSchema = new mongoose.Schema({
 
 const apiLeadSchema = new mongoose.Schema({
     name: { type: String, required: true, lowercase: true },
-    phone: { type: String, required: true, unique: true },
+    phone: { type: String, required: true },
     countryCode: { type: String, default: '' },
     place: { type: String, lowercase: true },
     designation: { type: String, lowercase: true },
@@ -44,9 +44,9 @@ const apiLeadSchema = new mongoose.Schema({
     },
     enquiredVehicle: { type: String, lowercase: true },
     leadType: { type: String, enum: ['hot', 'warm', 'cold'], default: 'hot' },
-    status: { type: String, enum: ['new', 'contacted', 'sold', 'deal_closed'], default: 'new' },
+    status: { type: String, enum: ['new', 'contacted', 'booking_confirmed', 'deal_closed'], default: 'new' },
     notes: [{ type: String }],
-    tags: [{ type: String, lowercase: true }],
+    tags: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Tag' }],
 
     carDetails: [carDetailSchema],
 

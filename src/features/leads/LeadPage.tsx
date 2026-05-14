@@ -270,7 +270,7 @@ export function LeadPage() {
                                     <div className="flex flex-wrap gap-2">
                                         {lead.tags.map((tag, idx) => (
                                             <span key={idx} className="flex items-center gap-1.5 rounded-lg bg-indigo-50/80 px-3 py-1.5 text-xs font-bold text-indigo-700 border border-indigo-100 border-dashed">
-                                                {tag}
+                                                {typeof tag === 'string' ? tag : tag.name}
                                             </span>
                                         ))}
                                     </div>

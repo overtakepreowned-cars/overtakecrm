@@ -4,21 +4,30 @@ import * as leadsController from '../controllers/leadsController.js';
 import * as usersController from '../controllers/usersController.js';
 import * as metadataController from '../controllers/metadataController.js';
 import * as webhookController from '../controllers/webhookController.js';
+import { authenticate, authorize } from '../middleware/authMiddleware.js';
+import { validate, loginValidation, leadValidation } from '../middleware/validationMiddleware.js';
 
 const router = express.Router();
 
 // Auth
-router.post('/auth/login', authController.login);
+router.post('/auth/login', loginValidation, validate, authController.login);
 
-// Users
+// Webhooks
+router.post('/webhooks/leads', webhookController.captureWebhookLead);
+
+// Protected Routes (Authenticate all below)
+router.use(authenticate);
+
+// Users (Admin only for modifications)
 router.get('/users', usersController.getUsers);
-router.post('/users', usersController.createUser);
-router.put('/users/:id', usersController.updateUser);
-router.delete('/users/:id', usersController.deleteUser);
+router.post('/users', authorize(['admin']), usersController.createUser);
+router.put('/users/:id', authorize(['admin']), usersController.updateUser);
+router.delete('/users/:id', authorize(['admin']), usersController.deleteUser);
 
 // Tags
 router.get('/tags', metadataController.getTags);
 router.post('/tags', metadataController.createTag);
+router.put('/tags/:id', metadataController.updateTag);
 router.delete('/tags/:id', metadataController.deleteTag);
 
 // Smart Lists
@@ -29,23 +38,21 @@ router.delete('/smartlists/:id', metadataController.deleteSmartList);
 // Leads
 router.get('/leads', leadsController.getLeads);
 router.get('/leads/:id', leadsController.getLeadById);
-router.post('/leads', leadsController.createLead);
+router.post('/leads', leadValidation, validate, leadsController.createLead);
 router.put('/leads/:id', leadsController.updateLead);
-router.delete('/leads/:id', leadsController.deleteLead);
+router.delete('/leads/:id', authorize(['admin']), leadsController.deleteLead);
+router.post('/leads/import', authorize(['admin']), leadsController.importLeads);
 
 // Bulk Actions
-router.post('/leads/bulk-delete', leadsController.bulkDeleteLeads);
+router.post('/leads/bulk-delete', authorize(['admin']), leadsController.bulkDeleteLeads);
 router.post('/leads/bulk-assign', leadsController.bulkAssignLeads);
 router.post('/leads/bulk-update', leadsController.bulkUpdateLeads);
 router.post('/leads/bulk-prefix', leadsController.bulkUpdatePhonePrefix);
 
 // API Leads
-router.get('/api-leads', leadsController.getApiLeads);
-router.put('/api-leads/:id', leadsController.updateApiLead);
-router.delete('/api-leads/:id', leadsController.deleteApiLead);
-router.post('/api-leads/:id/approve', leadsController.approveApiLead);
-
-// Webhooks
-router.post('/webhooks/leads', webhookController.captureWebhookLead);
+router.get('/api-leads', authorize(['admin', 'sales']), leadsController.getApiLeads);
+router.put('/api-leads/:id', authorize(['admin']), leadsController.updateApiLead);
+router.delete('/api-leads/:id', authorize(['admin']), leadsController.deleteApiLead);
+router.post('/api-leads/:id/approve', authorize(['admin']), leadsController.approveApiLead);
 
 export default router;

@@ -1,9 +1,11 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLeads } from '../../context/LeadsContext';
-import { Search, Filter, X, Briefcase, Bookmark, MoreHorizontal, Trash2, UserPlus, CheckCircle2, Phone, Car, Edit3, Save, User as UserIcon, AlertTriangle, Calendar } from 'lucide-react';
+import { Search, Filter, X, Briefcase, Bookmark, MoreHorizontal, Trash2, UserPlus, CheckCircle2, Phone, Car, Edit3, Save, User as UserIcon, AlertTriangle, Calendar, Upload } from 'lucide-react';
 import { isSameDay, parseISO, format } from 'date-fns';
 import { Lead, CarDetail, ApiLeadEditData, LeadFilter } from '../../types';
+import { useAuth } from '../../context/AuthContext';
+import { LeadImportModal } from './LeadImportModal';
 import { TagInput } from '../../components/TagInput';
 import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
 import { COUNTRIES, parsePhoneNumber } from '../../constants/countries';
@@ -13,7 +15,8 @@ interface LeadListProps {
 }
 
 export function LeadList({ initialFilter = 'all' }: LeadListProps) {
-    const { leads, apiLeads, addSmartList, users, deleteApiLead, approveApiLead, updateApiLead, bulkDeleteLeads, bulkAssignLeads, bulkUpdateLeads, bulkUpdatePhonePrefix, smartLists, deleteSmartList } = useLeads();
+    const { leads, apiLeads, addSmartList, users, deleteApiLead, approveApiLead, updateApiLead, bulkDeleteLeads, bulkAssignLeads, bulkUpdateLeads, bulkUpdatePhonePrefix, smartLists, deleteSmartList, tags, addTag } = useLeads();
+    const { isAdmin } = useAuth();
 
     const [currentMode, setCurrentMode] = useState<'all' | 'followup' | 'smartlist' | 'apileads'>(initialFilter);
     const [activeSmartListId, setActiveSmartListId] = useState<string | null>(null);
@@ -96,7 +99,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
     }, [leads]);
     const availablePlaces = useMemo(() => Array.from(new Set(leads.map(l => l.place).filter(Boolean))), [leads]);
     const availableDesignations = useMemo(() => Array.from(new Set(leads.map(l => l.designation).filter(Boolean))), [leads]);
-    const availableTags = useMemo(() => Array.from(new Set(leads.flatMap(l => l.tags))), [leads]);
+    const availableTags = useMemo(() => tags.map(t => ({ _id: t._id, name: t.name })), [tags]);
 
     const handleApplyFilters = () => {
         // Sync draft to active (individual states)
@@ -162,6 +165,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
 
     const [isSmartListModalOpen, setIsSmartListModalOpen] = useState(false);
     const [smartListName, setSmartListName] = useState('');
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
     const navigate = useNavigate();
     const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
@@ -258,7 +262,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                     lead.phone.includes(searchLower) ||
                     (searchDigits && phoneDigits.includes(searchDigits)) ||
                     (lead.place && lead.place.toLowerCase().includes(searchLower)) ||
-                    lead.tags.some(t => t.toLowerCase().includes(searchLower)) ||
+                    lead.tags.some(t => (typeof t === 'string' ? t : t.name).toLowerCase().includes(searchLower)) ||
                     lead.carDetails?.some(c => `${c.brandName} ${c.modelName}`.toLowerCase().includes(searchLower))
                 );
             }
@@ -294,7 +298,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                 }
                 if (smartListFilter.place && (!lead.place || !lead.place.toLowerCase().includes(smartListFilter.place.toLowerCase()))) return false;
                 if (smartListFilter.designation && (!lead.designation || !lead.designation.toLowerCase().includes(smartListFilter.designation.toLowerCase()))) return false;
-                if (smartListFilter.tag && !lead.tags.some(t => t.toLowerCase().includes(smartListFilter.tag!.toLowerCase()))) return false;
+                if (smartListFilter.tag && !lead.tags.some(t => (typeof t === 'string' ? t : t.name).toLowerCase().includes(smartListFilter.tag!.toLowerCase()))) return false;
                 if (smartListFilter.status && smartListFilter.status !== 'all' && lead.status !== smartListFilter.status) return false;
                 if (smartListFilter.leadType && smartListFilter.leadType !== 'all' && lead.leadType !== smartListFilter.leadType) return false;
                 if (smartListFilter.leadOrigin && smartListFilter.leadOrigin !== 'all' && lead.leadOrigin !== smartListFilter.leadOrigin) return false;
@@ -461,9 +465,9 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
             if (placeFilter && (!lead.place || !lead.place.toLowerCase().includes(placeFilter.toLowerCase()))) return false;
             if (designationFilter && (!lead.designation || !lead.designation.toLowerCase().includes(designationFilter.toLowerCase()))) return false;
             if (tagFilterTags.length > 0) {
-                const leadTagsLower = lead.tags.map(t => t.toLowerCase());
+                const leadTagNames = lead.tags.map(t => (typeof t === 'string' ? t : t.name).toLowerCase());
                 const selectedLower = tagFilterTags.map(t => t.toLowerCase());
-                const hasMatch = selectedLower.some(sel => leadTagsLower.includes(sel));
+                const hasMatch = selectedLower.some(sel => leadTagNames.includes(sel));
                 if (!hasMatch) return false;
             }
             if (leadOriginFilter !== 'all' && lead.leadOrigin !== leadOriginFilter) return false;
@@ -878,6 +882,14 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                 </button>
                             )
                         )}
+                        {isAdmin && currentMode !== 'apileads' && (
+                            <button
+                                onClick={() => setIsImportModalOpen(true)}
+                                className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold shadow-sm hover:bg-gray-50 transition-all ml-2"
+                            >
+                                <Upload size={16} /> Import
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -968,6 +980,9 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                     selectedTags={bulkTags}
                                     onTagsChange={setBulkTags}
                                     availableTags={availableTags}
+                                    onCreateTag={async (name) => {
+                                        await addTag({ name });
+                                    }}
                                     placeholder={bulkTagUpdateType === 'add' ? "Select tags to add..." : "Select tags to remove..."}
                                 />
 
@@ -1712,7 +1727,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                 <div className="flex flex-wrap gap-1">
                                     {lead.tags.map((tag, i) => (
                                         <span key={i} className="px-1.5 py-0.5 bg-gray-50 text-gray-500 border border-gray-100 rounded text-[9px] font-medium">
-                                            {tag}
+                                            {typeof tag === 'string' ? tag : tag.name}
                                         </span>
                                     ))}
                                 </div>
@@ -1826,7 +1841,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                         <div className="flex flex-wrap gap-1 max-w-[150px]">
                                             {lead.tags.length > 0 ? lead.tags.map((tag, i) => (
                                                 <span key={i} className="px-1.5 py-0.5 bg-gray-50 text-gray-500 border border-gray-100 rounded text-[9px] font-medium">
-                                                    {tag}
+                                                    {typeof tag === 'string' ? tag : tag.name}
                                                 </span>
                                             )) : <span className="text-[9px] text-gray-300 italic">No tags</span>}
                                         </div>
@@ -1921,25 +1936,26 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
 
             {/* Modals */}
             {isSmartListModalOpen && (
-                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/50 backdrop-blur-[2px] p-4 text-left">
-                    <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl animate-fadeIn">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-bold text-gray-900">Save Smart List</h3>
-                            <button onClick={() => setIsSmartListModalOpen(false)}><X size={20} className="text-gray-700" /></button>
-                        </div>
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+                        <h3 className="text-lg font-bold text-gray-900 mb-4">Save Smart List</h3>
                         <input
-                            autoFocus
-                            placeholder="e.g. Hot Leads"
+                            type="text"
+                            placeholder="List name..."
                             value={smartListName}
                             onChange={(e) => setSmartListName(e.target.value)}
-                            className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:border-indigo-500 outline-none"
+                            className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:border-indigo-500 outline-none mb-6"
                         />
-                        <div className="flex justify-end gap-3 mt-6">
-                            <button onClick={() => setIsSmartListModalOpen(false)} className="px-4 py-2 font-semibold text-gray-500 hover:text-gray-900">Cancel</button>
-                            <button onClick={handleSaveSmartList} disabled={!smartListName} className="rounded-xl bg-[#1B1B19] px-6 py-2.5 font-bold text-white shadow-md hover:bg-black disabled:opacity-50 transition-all active:scale-95">Save List</button>
+                        <div className="flex justify-end gap-3">
+                            <button onClick={() => setIsSmartListModalOpen(false)} className="px-4 py-2 text-sm font-bold text-gray-500 hover:text-gray-700">Cancel</button>
+                            <button onClick={handleSaveSmartList} className="px-6 py-2 bg-[#1B1B19] text-white rounded-xl text-sm font-bold shadow-lg shadow-gray-200 hover:bg-black transition-all">Save List</button>
                         </div>
                     </div>
                 </div>
+            )}
+
+            {isImportModalOpen && (
+                <LeadImportModal onClose={() => setIsImportModalOpen(false)} />
             )}
 
             {/* Delete Confirmation Modal */}

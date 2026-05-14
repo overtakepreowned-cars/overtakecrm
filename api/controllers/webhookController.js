@@ -51,7 +51,8 @@ export const captureWebhookLead = async (req, res, next) => {
             return res.status(400).json({ message: 'Name and phone inside leadinfo are required.' });
         }
 
-        const existingMainLead = await Lead.findOne({ phone: phone.trim() });
+        const fullPhone = detectedCountryCode + phone;
+        const existingMainLead = await Lead.findOne({ phone: fullPhone.trim() });
         const existingInCrm = !!existingMainLead;
 
         const validOrigins = ['whatsapp', 'insta', 'fb', 'walk-in', 'tele', 'referral', 'web', 'olx', 'team-tech', 'other'];
@@ -80,7 +81,7 @@ export const captureWebhookLead = async (req, res, next) => {
         const notesArray = [];
         if (custom.Note) notesArray.push(custom.Note);
 
-        const existingApiLead = await ApiLead.findOne({ phone: phone.trim() });
+        const existingApiLead = await ApiLead.findOne({ phone: phone.trim(), countryCode: detectedCountryCode });
         if (existingApiLead) {
             for (const incoming of carDetailsArray) {
                 const isDuplicate = existingApiLead.carDetails.some(existing =>

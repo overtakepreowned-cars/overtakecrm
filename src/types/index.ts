@@ -7,7 +7,7 @@ export interface User {
 export interface Tag {
     _id: string;
     name: string;
-    color: string;
+    createdAt?: string;
 }
 
 export interface VehicleInfo {
@@ -65,7 +65,7 @@ export interface Lead {
     leadType: 'hot' | 'warm' | 'cold';
     status: 'new' | 'contacted' | 'booking_confirmed' | 'deal_closed';
     notes: string[];
-    tags: string[];
+    tags: (Tag | string)[];
     carDetails: CarDetail[];
     assignedTo?: User;
     assignmentHistory: AssignmentRecord[];

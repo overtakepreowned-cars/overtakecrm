@@ -45,7 +45,7 @@ const leadSchema = new mongoose.Schema({
     leadType: { type: String, enum: ['hot', 'warm', 'cold'], default: 'hot' },
     status: { type: String, enum: ['new', 'contacted', 'booking_confirmed', 'deal_closed'], default: 'new' },
     notes: [{ type: String }],
-    tags: [{ type: String, lowercase: true }],
+    tags: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Tag' }],
 
     carDetails: [carDetailSchema],
 

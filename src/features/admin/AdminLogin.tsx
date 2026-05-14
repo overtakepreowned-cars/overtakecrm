@@ -1,21 +1,54 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Lock, ArrowRight, AlertCircle, Loader2, User as UserIcon } from 'lucide-react';
+import { Lock, ArrowRight, AlertCircle, Loader2, User as UserIcon, ShieldAlert } from 'lucide-react';
 import logo from '../../assets/mainlogo.svg';
+
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_DURATION_SECONDS = 30;
 
 export function AdminLogin() {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState(false);
     const [isLoggingIn, setIsLoggingIn] = useState(false);
+    const [failedAttempts, setFailedAttempts] = useState(() => {
+        const stored = localStorage.getItem('login_attempts');
+        return stored ? parseInt(stored) : 0;
+    });
+    const [lockoutUntil, setLockoutUntil] = useState(() => {
+        const stored = localStorage.getItem('lockout_until');
+        return stored ? parseInt(stored) : 0;
+    });
+    const [timeRemaining, setTimeRemaining] = useState(0);
     
     const { login } = useAuth();
     const navigate = useNavigate();
 
+    useEffect(() => {
+        let timer: NodeJS.Timeout;
+        if (lockoutUntil > Date.now()) {
+            const calculateRemaining = () => {
+                const remaining = Math.ceil((lockoutUntil - Date.now()) / 1000);
+                if (remaining <= 0) {
+                    setLockoutUntil(0);
+                    localStorage.removeItem('lockout_until');
+                    setFailedAttempts(0);
+                    localStorage.removeItem('login_attempts');
+                    setTimeRemaining(0);
+                } else {
+                    setTimeRemaining(remaining);
+                    timer = setTimeout(calculateRemaining, 1000);
+                }
+            };
+            calculateRemaining();
+        }
+        return () => clearTimeout(timer);
+    }, [lockoutUntil]);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!username || !password) return;
+        if (!username || !password || timeRemaining > 0) return;
 
         setIsLoggingIn(true);
         const success = await login(username, password);
@@ -23,11 +56,25 @@ export function AdminLogin() {
 
         if (success) {
             setError(false);
+            setFailedAttempts(0);
+            localStorage.removeItem('login_attempts');
+            localStorage.removeItem('lockout_until');
             navigate('/', { replace: true });
         } else {
+            const newAttempts = failedAttempts + 1;
+            setFailedAttempts(newAttempts);
+            localStorage.setItem('login_attempts', newAttempts.toString());
             setError(true);
+
+            if (newAttempts >= MAX_FAILED_ATTEMPTS) {
+                const lockTime = Date.now() + (LOCKOUT_DURATION_SECONDS * 1000);
+                setLockoutUntil(lockTime);
+                localStorage.setItem('lockout_until', lockTime.toString());
+            }
         }
     };
+
+    const isLockedOut = timeRemaining > 0;
 
     return (
         <div className="flex h-screen w-full bg-white overflow-hidden font-sans">
@@ -74,6 +121,7 @@ export function AdminLogin() {
                                     type="text"
                                     placeholder="Enter your username"
                                     value={username}
+                                    disabled={isLockedOut}
                                     onChange={(e) => {
                                         setUsername(e.target.value);
                                         setError(false);
@@ -82,7 +130,7 @@ export function AdminLogin() {
                                         error 
                                         ? 'border-red-300 ring-4 ring-red-50 bg-red-50/30 text-red-900 placeholder-red-300' 
                                         : 'border-gray-200 bg-gray-50 text-gray-900 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-50 placeholder-gray-400 hover:border-gray-300 hover:bg-white'
-                                    } transition-all font-semibold outline-none text-[15px]`}
+                                    } transition-all font-semibold outline-none text-[15px] disabled:opacity-50`}
                                 />
                             </div>
                         </div>
@@ -97,6 +145,7 @@ export function AdminLogin() {
                                     type="password"
                                     placeholder="Enter your password"
                                     value={password}
+                                    disabled={isLockedOut}
                                     onChange={(e) => {
                                         setPassword(e.target.value);
                                         setError(false);
@@ -105,21 +154,31 @@ export function AdminLogin() {
                                         error 
                                         ? 'border-red-300 ring-4 ring-red-50 bg-red-50/30 text-red-900 placeholder-red-300' 
                                         : 'border-gray-200 bg-gray-50 text-gray-900 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-50 placeholder-gray-400 hover:border-gray-300 hover:bg-white'
-                                    } transition-all font-semibold outline-none text-[15px]`}
+                                    } transition-all font-semibold outline-none text-[15px] disabled:opacity-50`}
                                 />
                             </div>
                         </div>
 
-                        {error && (
+                        {error && !isLockedOut && (
                             <div className="flex items-center gap-2 text-red-600 text-[13px] font-bold justify-center bg-red-50 py-3 rounded-xl border border-red-100 animate-fadeIn mt-1">
                                 <AlertCircle size={16} />
-                                Invalid username or password.
+                                Invalid username or password. ({MAX_FAILED_ATTEMPTS - failedAttempts} attempts left)
+                            </div>
+                        )}
+
+                        {isLockedOut && (
+                            <div className="flex flex-col items-center gap-2 text-orange-700 text-[13px] font-bold justify-center bg-orange-50 py-4 rounded-xl border border-orange-200 animate-pulse mt-1">
+                                <div className="flex items-center gap-2">
+                                    <ShieldAlert size={18} />
+                                    Too many failed attempts.
+                                </div>
+                                <span className="text-[11px] uppercase tracking-wider">Try again in {timeRemaining} seconds</span>
                             </div>
                         )}
 
                         <button
                             type="submit"
-                            disabled={isLoggingIn || !username || !password}
+                            disabled={isLoggingIn || !username || !password || isLockedOut}
                             className="w-full flex items-center justify-center gap-2 mt-4 rounded-xl bg-[#1B1B19] px-6 py-4 text-[15px] font-bold text-white shadow-xl shadow-gray-200/50 transition-all hover:-translate-y-0.5 hover:shadow-2xl hover:bg-black active:translate-y-0 disabled:opacity-70 disabled:hover:translate-y-0 disabled:hover:shadow-none disabled:cursor-not-allowed"
                         >
                             {isLoggingIn ? (
@@ -129,8 +188,8 @@ export function AdminLogin() {
                                 </>
                             ) : (
                                 <>
-                                    Sign In to CRM
-                                    <ArrowRight size={20} />
+                                    {isLockedOut ? 'Login Restricted' : 'Sign In to CRM'}
+                                    {!isLockedOut && <ArrowRight size={20} />}
                                 </>
                             )}
                         </button>

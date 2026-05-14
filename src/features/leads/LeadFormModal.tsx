@@ -13,14 +13,10 @@ interface LeadFormModalProps {
 }
 
 export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalProps) {
-    const { addLead, updateLead, updateApiLead, users, leads } = useLeads();
+    const { addLead, updateLead, updateApiLead, users, leads, tags: globalTags, addTag } = useLeads();
 
     // Get unique tags from all leads for suggestions
-    const availableTags = useMemo(() => {
-        const tags = new Set<string>();
-        leads.forEach(l => l.tags?.forEach(t => tags.add(t)));
-        return Array.from(tags);
-    }, [leads]);
+    const availableTags = useMemo(() => globalTags.map(t => ({ _id: t._id, name: t.name })), [globalTags]);
 
     const availablePlaces = useMemo(() => {
         const places = new Set<string>();
@@ -205,7 +201,7 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name } = e.target;
-        let { value } = e.target;
+        const { value } = e.target;
 
         // Restrict phone logic moved to specialized handlers
         if (name === 'phone') return;
@@ -505,6 +501,9 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
                     selectedTags={formData.tags || []}
                     onTagsChange={(tags) => setFormData(prev => ({ ...prev, tags }))}
                     availableTags={availableTags}
+                    onCreateTag={async (name) => {
+                        await addTag({ name });
+                    }}
                     placeholder="Add tags (e.g. priority, web-lead)..."
                 />
             </div>
