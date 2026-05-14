@@ -10,6 +10,9 @@ dotenv.config();
 
 const app = express();
 
+// Trust proxy for Vercel
+app.set('trust proxy', 1);
+
 // Security Middlewares
 app.use(helmet());
 app.use(cors({
