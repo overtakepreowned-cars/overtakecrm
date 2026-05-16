@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { useAuth } from './AuthContext';
 import { isSameDay } from 'date-fns';
 import { Lead, User, SmartList, Tag, FollowupRecord, ApiLeadEditData } from '../types';
 import { authenticatedFetch } from '../utils/api';
@@ -44,7 +45,16 @@ export function LeadsProvider({ children }: { children: React.ReactNode }) {
     const [tags, setTags] = useState<Tag[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const isFirstLoad = useRef(true);
+    const { token } = useAuth();
+
+    const clearData = () => {
+        setLeads([]);
+        setApiLeads([]);
+        setUsers([]);
+        setSmartLists([]);
+        setTags([]);
+        setError(null);
+    };
 
     const fetchData = async (silent = false) => {
         try {
@@ -106,10 +116,14 @@ export function LeadsProvider({ children }: { children: React.ReactNode }) {
     };
 
     useEffect(() => {
-        if (isFirstLoad.current) {
-            fetchData();
-            isFirstLoad.current = false;
+        if (!token) {
+            clearData();
+            setLoading(false);
+            return;
         }
+
+        // Initial fetch when token becomes available
+        fetchData();
 
         // Live Update Polling (every 10 seconds)
         const intervalId = setInterval(() => {
@@ -117,7 +131,7 @@ export function LeadsProvider({ children }: { children: React.ReactNode }) {
         }, 10000);
 
         return () => clearInterval(intervalId);
-    }, []);
+    }, [token]);
 
     const addLead = async (leadData: Partial<Lead>) => {
         try {

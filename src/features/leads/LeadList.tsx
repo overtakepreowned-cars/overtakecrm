@@ -15,7 +15,7 @@ interface LeadListProps {
 }
 
 export function LeadList({ initialFilter = 'all' }: LeadListProps) {
-    const { leads, apiLeads, addSmartList, users, deleteApiLead, approveApiLead, updateApiLead, bulkDeleteLeads, bulkAssignLeads, bulkUpdateLeads, bulkUpdatePhonePrefix, smartLists, deleteSmartList, tags, addTag } = useLeads();
+    const { leads, apiLeads, addSmartList, users, deleteApiLead, approveApiLead, updateApiLead, bulkDeleteLeads, bulkAssignLeads, bulkUpdateLeads, bulkUpdatePhonePrefix, smartLists, deleteSmartList, tags, addTag, loading, error } = useLeads();
     const { isAdmin } = useAuth();
 
     const [currentMode, setCurrentMode] = useState<'all' | 'followup' | 'smartlist' | 'apileads'>(initialFilter);
@@ -714,6 +714,27 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
         !!amountFilter ||
         !!countryCodeFilter;
 
+    if (loading && leads.length === 0 && apiLeads.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+                <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-gray-500 font-medium animate-pulse">Fetching your contacts...</p>
+            </div>
+        );
+    }
+
+    if (error && leads.length === 0 && apiLeads.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 p-8 bg-red-50 rounded-2xl border border-red-100 mx-4">
+                <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center">
+                    <AlertTriangle size={32} />
+                </div>
+                <h3 className="text-xl font-bold text-red-900">Connection Issue</h3>
+                <p className="text-red-600 text-center max-w-md">{error}</p>
+                <button onClick={() => window.location.reload()} className="px-6 py-2 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-200">Try Again</button>
+            </div>
+        );
+    }
 
     return (
         <div className="flex w-full flex-col bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">

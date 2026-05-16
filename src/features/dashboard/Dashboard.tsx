@@ -4,7 +4,7 @@ import { isSameDay, parseISO } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 
 export function Dashboard() {
-    const { leads, apiLeads, users } = useLeads();
+    const { leads, apiLeads, users, loading, error } = useLeads();
     const navigate = useNavigate();
 
     const today = new Date();
@@ -71,6 +71,28 @@ export function Dashboard() {
             missedFollowups: missedUFollowups
         };
     });
+
+    if (loading && leads.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+                <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-gray-500 font-medium animate-pulse">Loading dashboard data...</p>
+            </div>
+        );
+    }
+
+    if (error && leads.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 p-8 bg-red-50 rounded-2xl border border-red-100">
+                <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center">
+                    <Zap size={32} />
+                </div>
+                <h3 className="text-xl font-bold text-red-900">Dashboard Unavailable</h3>
+                <p className="text-red-600 text-center max-w-md">{error}</p>
+                <button onClick={() => window.location.reload()} className="px-6 py-2 bg-[#1B1B19] text-white rounded-xl font-bold hover:bg-black transition-all">Retry</button>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col gap-8 pb-12">
