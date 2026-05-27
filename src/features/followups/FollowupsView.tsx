@@ -1,12 +1,13 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLeads } from '../../context/LeadsContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format, isSameDay, parseISO, startOfDay, differenceInDays } from 'date-fns';
 import { Phone, Calendar as CalendarIcon, Clock, CheckCircle2, AlertCircle, User, Eye, Plus, Filter, Zap, PhoneCall, Users, CreditCard } from 'lucide-react';
 import { Lead } from '../../types';
+
 export function FollowupsView() {
-    const { leads, users, updateLead } = useLeads();
+    const { leads, users, updateLead, fetchLeads } = useLeads();
     const navigate = useNavigate();
 
     // Filters & Tabs
@@ -27,30 +28,32 @@ export function FollowupsView() {
         { id: 'cold', title: 'Cold', icon: Users, color: 'text-blue-500', bg: 'bg-blue-50', border: 'border-blue-100' },
     ];
 
-    const filteredLeads = useMemo(() => {
-        return leads.filter(lead => {
-            if (!lead.followupDate || lead.status === 'booking_confirmed' || lead.status === 'deal_closed') return false;
-
-            // Apply assignee filter
-            if (assigneeFilter !== 'all') {
-                if (assigneeFilter === 'unassigned') {
-                    if (lead.assignedTo) return false;
-                } else {
-                    const assignedId = typeof lead.assignedTo === 'object' ? lead.assignedTo?._id : lead.assignedTo;
-                    if (assignedId !== assigneeFilter) return false;
-                }
-            }
-
-            // Apply specific date filter
-            if (specificDateFilter) {
-                const fDate = startOfDay(parseISO(lead.followupDate as string));
-                const filterDate = startOfDay(parseISO(specificDateFilter));
-                if (!isSameDay(fDate, filterDate)) return false;
-            }
-
-            return true;
+    useEffect(() => {
+        fetchLeads({
+            hasFollowup: 'true',
+            assignedTo: assigneeFilter !== 'all' ? assigneeFilter : undefined,
+            date: specificDateFilter || undefined,
+            limit: 1000
         });
-    }, [leads, assigneeFilter, specificDateFilter]);
+    }, [assigneeFilter, specificDateFilter]);
+
+    // Filter by specificDateFilter on the frontend to support full date filtering
+    const filteredLeads = useMemo(() => {
+        if (!specificDateFilter) return leads;
+
+        return leads.filter(lead => {
+            if (!lead.followupDate) return false;
+            try {
+                const parsed = parseISO(lead.followupDate as string);
+                if (isNaN(parsed.getTime())) return false;
+
+                const leadDateStr = format(parsed, 'yyyy-MM-dd');
+                return leadDateStr === specificDateFilter;
+            } catch {
+                return false;
+            }
+        });
+    }, [leads, specificDateFilter]);
 
     // First categorize by Time (Tab)
     const categorizedByTime = useMemo(() => {
@@ -58,14 +61,24 @@ export function FollowupsView() {
         const today = startOfDay(new Date());
 
         filteredLeads.forEach(lead => {
-            const fDate = startOfDay(parseISO(lead.followupDate as string));
+            if (!lead.followupDate) return; // Skip if no followup date
 
-            if (fDate < today) {
-                result.missed.push(lead);
-            } else if (isSameDay(fDate, today)) {
-                result.today.push(lead);
-            } else {
-                result.upcoming.push(lead);
+            try {
+                const parsed = parseISO(lead.followupDate as string);
+                if (isNaN(parsed.getTime())) return; // Skip invalid dates
+
+                const fDate = startOfDay(parsed);
+                if (isNaN(fDate.getTime())) return;
+
+                if (fDate < today) {
+                    result.missed.push(lead);
+                } else if (isSameDay(fDate, today)) {
+                    result.today.push(lead);
+                } else {
+                    result.upcoming.push(lead);
+                }
+            } catch (err) {
+                console.error('Failed to parse followup date for lead:', lead, err);
             }
         });
 
@@ -78,14 +91,18 @@ export function FollowupsView() {
     }, [filteredLeads]);
 
     // Leads for current active tab
-    const currentTabLeads = categorizedByTime[activeTab];
+    const currentTabLeads = categorizedByTime[activeTab] || [];
 
     // Inside the active tab, group leads by LEAD TYPE to form columns
     const columnsData = useMemo(() => {
         const grouped: Record<string, Lead[]> = { hot: [], warm: [], cold: [] };
+        
         currentTabLeads.forEach(lead => {
-            if (grouped[lead.leadType]) {
-                grouped[lead.leadType].push(lead);
+            const type = (lead.leadType || 'cold').toLowerCase(); // Fallback to 'cold' if missing
+            if (grouped[type]) {
+                grouped[type].push(lead);
+            } else {
+                grouped.cold.push(lead); // Default fallback column
             }
         });
         return grouped;
@@ -159,7 +176,7 @@ export function FollowupsView() {
                         <Filter size={16} /> Filters:
                     </div>
 
-                    <div className="flex items-center gap-2 relative">
+                    <div className="flex items-center gap-2">
                         <input
                             type="date"
                             value={specificDateFilter}
@@ -169,10 +186,10 @@ export function FollowupsView() {
                         {specificDateFilter && (
                             <button
                                 onClick={() => setSpecificDateFilter('')}
-                                className="absolute right-2 text-gray-400 hover:text-red-500"
+                                className="flex items-center justify-center p-2 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-600 transition-colors border border-red-100 shrink-0"
                                 title="Clear Date Filter"
                             >
-                                <Plus size={16} className="rotate-45" />
+                                <Plus size={18} className="rotate-45" />
                             </button>
                         )}
                     </div>

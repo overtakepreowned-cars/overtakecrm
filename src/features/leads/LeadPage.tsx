@@ -2,19 +2,58 @@ import { Phone, MapPin, Tag, Briefcase, History, Trash2, Edit3, User, Car, Arrow
 import { format, isValid, startOfDay } from 'date-fns';
 import { useLeads } from '../../context/LeadsContext';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { LeadFormModal } from './LeadFormModal';
 import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
+import { Lead } from '../../types';
+import { authenticatedFetch } from '../../utils/api';
 
 export function LeadPage() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const { leads, users, deleteLead, completeFollowup, updateLead } = useLeads();
+    const [lead, setLead] = useState<Lead | null>(null);
+    const [pageLoading, setPageLoading] = useState(true);
+    const [pageError, setPageError] = useState<string | null>(null);
     const [generalNote, setGeneralNote] = useState('');
     const [followupNoteInputPage, setFollowupNoteInputPage] = useState('');
     const [newFollowupDate, setNewFollowupDate] = useState('');
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
+    useEffect(() => {
+        if (!id) return;
+        
+        let active = true;
+        const fetchSingleLead = async () => {
+            try {
+                setPageLoading(true);
+                const res = await authenticatedFetch(`/api/leads/${id}`);
+                if (!res.ok) {
+                    throw new Error('Failed to fetch contact details');
+                }
+                const data = await res.json();
+                if (active) {
+                    setLead(data);
+                    setPageError(null);
+                }
+            } catch (err: any) {
+                if (active) {
+                    setPageError(err.message || 'Contact not found');
+                }
+            } finally {
+                if (active) {
+                    setPageLoading(false);
+                }
+            }
+        };
+
+        fetchSingleLead();
+
+        return () => {
+            active = false;
+        };
+    }, [id, leads]);
 
     const handleAddGeneralNote = async () => {
         if (!generalNote.trim() || !id) return;
@@ -55,8 +94,6 @@ export function LeadPage() {
         setNewFollowupDate('');
     };
 
-    const lead = leads.find(l => l._id === id);
-
     const onBack = () => {
         if (window.history.length > 2) {
             navigate(-1);
@@ -95,7 +132,7 @@ export function LeadPage() {
         return isValid(date) && startOfDay(date) < today;
     };
 
-    if (!leads.length) {
+    if (pageLoading) {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#1B1B19]"></div>
@@ -103,10 +140,10 @@ export function LeadPage() {
         );
     }
 
-    if (!lead) {
+    if (pageError || !lead) {
         return (
             <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
-                <p className="text-gray-500 font-medium">Lead not found</p>
+                <p className="text-gray-500 font-medium">{pageError || 'Lead not found'}</p>
                 <button
                     onClick={() => navigate('/contacts')}
                     className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600 shadow-sm transition-all hover:bg-gray-50 hover:text-gray-900"

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import { isSameDay } from 'date-fns';
 import { Lead, User, SmartList, Tag, FollowupRecord, ApiLeadEditData } from '../types';
@@ -12,7 +12,9 @@ interface LeadsContextType {
     loading: boolean;
     error: string | null;
     apiLeads: Lead[];
-    fetchLeads: () => Promise<void>;
+    stats: any;
+    totalLeads: number;
+    fetchLeads: (pageOrParams?: number | Record<string, any>, limit?: number, search?: string) => Promise<void>;
     addLead: (lead: Partial<Lead>) => Promise<void>;
     updateLead: (id: string, updates: Partial<Lead>) => Promise<void>;
     deleteLead: (id: string) => Promise<void>;
@@ -33,6 +35,7 @@ interface LeadsContextType {
     bulkUpdatePhonePrefix: (ids: string[], prefix: string) => Promise<void>;
     completeFollowup: (leadId: string, note?: string, result?: 'responded' | 'not_responded') => Promise<void>;
     importLeads: (data: { rows: any[], mapping: any, globalTags?: string[], fixedFields?: any }) => Promise<any>;
+    clearLeads: () => void;
 }
 
 const LeadsContext = createContext<LeadsContextType | undefined>(undefined);
@@ -45,7 +48,14 @@ export function LeadsProvider({ children }: { children: React.ReactNode }) {
     const [tags, setTags] = useState<Tag[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [stats, setStats] = useState<any>(null);
+    const [totalLeads, setTotalLeads] = useState(0);
     const { token } = useAuth();
+    const fetchLeadsCounter = useRef(0);
+
+    const clearLeads = () => {
+        setLeads([]);
+    };
 
     const clearData = () => {
         setLeads([]);
@@ -53,22 +63,63 @@ export function LeadsProvider({ children }: { children: React.ReactNode }) {
         setUsers([]);
         setSmartLists([]);
         setTags([]);
+        setStats(null);
         setError(null);
+    };
+
+
+    // Ultra-lightweight polling to refresh KPIs and trigger automated lead alerts with < 5ms DB execution time
+    const pollLightweightData = async () => {
+        try {
+            const [statsRes, apiLeadsRes] = await Promise.all([
+                authenticatedFetch('/api/leads/stats'),
+                authenticatedFetch('/api/api-leads')
+            ]);
+            if (statsRes.ok) {
+                const data = await statsRes.json();
+                setStats(data);
+            }
+            if (apiLeadsRes.ok) {
+                const fetchedApiLeads = await apiLeadsRes.json();
+                const mappedApiLeads = fetchedApiLeads.map((l: Record<string, unknown>) => ({
+                    ...l,
+                    isApiLead: true,
+                    tags: l.tags || [],
+                    carDetails: l.carDetails || [],
+                    phone: l.phone || 'Unknown',
+                    assignmentHistory: l.assignmentHistory || [],
+                    followupHistory: l.followupHistory || []
+                } as unknown as Lead));
+                setApiLeads(mappedApiLeads);
+            }
+        } catch (err) {
+            console.error('Failed to poll lightweight data', err);
+        }
     };
 
     const fetchData = async (silent = false) => {
         try {
             if (!silent) setLoading(true);
-            const [leadsRes, usersRes, listsRes, tagsRes, apiLeadsRes] = await Promise.all([
-                authenticatedFetch('/api/leads'),
+
+            const [leadsRes, usersRes, listsRes, tagsRes, apiLeadsRes, statsRes] = await Promise.all([
+                authenticatedFetch('/api/leads?page=0&limit=20'), // Default load page 0 limit 20
                 authenticatedFetch('/api/users'),
                 authenticatedFetch('/api/smartlists'),
                 authenticatedFetch('/api/tags'),
-                authenticatedFetch('/api/api-leads')
+                authenticatedFetch('/api/api-leads'),
+                authenticatedFetch('/api/leads/stats')
             ]);
 
             if (leadsRes.ok) {
-                const fetchedLeads = await leadsRes.json();
+                const data = await leadsRes.json();
+                let fetchedLeads = [];
+                if (data && typeof data === 'object' && Array.isArray(data.leads)) {
+                    fetchedLeads = data.leads;
+                    setTotalLeads(data.total || 0);
+                } else if (Array.isArray(data)) {
+                    fetchedLeads = data;
+                    setTotalLeads(data.length);
+                }
                 const mappedLeads = fetchedLeads.map((l: Record<string, unknown>) => ({
                     ...l,
                     tags: l.tags || [],
@@ -78,14 +129,18 @@ export function LeadsProvider({ children }: { children: React.ReactNode }) {
                     assignmentHistory: l.assignmentHistory || [],
                     followupHistory: l.followupHistory || []
                 } as unknown as Lead));
-
                 setLeads(mappedLeads);
+            }
+            if (statsRes.ok) {
+                const data = await statsRes.json();
+                setStats(data);
+                setTotalLeads(data.total || 0);
             }
             if (apiLeadsRes.ok) {
                 const fetchedApiLeads = await apiLeadsRes.json();
                 const mappedApiLeads = fetchedApiLeads.map((l: Record<string, unknown>) => ({
                     ...l,
-                    isApiLead: true, // helpful flag
+                    isApiLead: true,
                     tags: l.tags || [],
                     carDetails: l.carDetails || [],
                     phone: l.phone || 'Unknown',
@@ -125,13 +180,81 @@ export function LeadsProvider({ children }: { children: React.ReactNode }) {
         // Initial fetch when token becomes available
         fetchData();
 
-        // Live Update Polling (every 10 seconds)
+        // Live Update Polling (every 10 seconds stats & apiLeads notification check only!)
         const intervalId = setInterval(() => {
-            fetchData(true);
+            pollLightweightData();
         }, 10000);
 
         return () => clearInterval(intervalId);
     }, [token]);
+
+    const fetchLeads = async (pageOrParams?: number | Record<string, any>, limit = 0, search = '') => {
+        const currentRequestId = ++fetchLeadsCounter.current;
+        let params: Record<string, any> = {};
+        if (typeof pageOrParams === 'object' && pageOrParams !== null) {
+            params = pageOrParams;
+        } else {
+            params = {
+                page: pageOrParams || 0,
+                limit: limit,
+                search: search
+            };
+        }
+
+        try {
+            setLoading(true);
+            const queryParams = new URLSearchParams();
+            Object.entries(params).forEach(([key, val]) => {
+                if (val !== undefined && val !== null && val !== '') {
+                    queryParams.append(key, String(val));
+                }
+            });
+
+            const queryStr = queryParams.toString();
+            const leadsUrl = queryStr ? `/api/leads?${queryStr}` : '/api/leads';
+
+            const res = await authenticatedFetch(leadsUrl);
+
+            // Discard stale response if a newer fetch request has already been started
+            if (currentRequestId !== fetchLeadsCounter.current) {
+                return;
+            }
+
+            if (res.ok) {
+                const data = await res.json();
+                let fetchedLeads = [];
+                if (data && typeof data === 'object' && Array.isArray(data.leads)) {
+                    fetchedLeads = data.leads;
+                    setTotalLeads(data.total || 0);
+                } else if (Array.isArray(data)) {
+                    fetchedLeads = data;
+                    setTotalLeads(data.length);
+                }
+
+                const mappedLeads = fetchedLeads.map((l: Record<string, unknown>) => ({
+                    ...l,
+                    tags: l.tags || [],
+                    carDetails: l.carDetails || [],
+                    username: l.username || 'Unknown',
+                    phone: l.phone || 'Unknown',
+                    assignmentHistory: l.assignmentHistory || [],
+                    followupHistory: l.followupHistory || []
+                } as unknown as Lead));
+
+                setLeads(mappedLeads);
+            }
+            setError(null);
+        } catch (err: any) {
+            if (currentRequestId === fetchLeadsCounter.current) {
+                console.error('Failed to fetch leads', err);
+                setError(err.message || 'Failed to fetch leads');
+            }
+        } finally {
+            if (currentRequestId === fetchLeadsCounter.current) {
+                setLoading(false);
+            }
+        }
+    };
 
     const addLead = async (leadData: Partial<Lead>) => {
         try {
@@ -437,13 +560,13 @@ export function LeadsProvider({ children }: { children: React.ReactNode }) {
 
     return (
         <LeadsContext.Provider value={{
-            leads, apiLeads, users, smartLists, tags, loading, error,
-            fetchLeads: fetchData, addLead, updateLead, deleteLead,
+            leads, apiLeads, users, smartLists, tags, loading, error, stats, totalLeads,
+            fetchLeads, addLead, updateLead, deleteLead,
             updateApiLead, deleteApiLead, approveApiLead,
             addUser, updateUser, deleteUser, addSmartList, deleteSmartList,
             addTag, updateTag, deleteTag,
             bulkDeleteLeads, bulkAssignLeads, bulkUpdateLeads, bulkUpdatePhonePrefix,
-            completeFollowup, importLeads
+            completeFollowup, importLeads, clearLeads
         }}>
             {children}
         </LeadsContext.Provider>

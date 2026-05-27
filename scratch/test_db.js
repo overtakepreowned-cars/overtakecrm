@@ -3,32 +3,30 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load env
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
-const MONGO_URI = process.env.MONGO_URI;
-console.log('Testing connection to:', MONGO_URI);
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/crm-demo';
 
-async function testConnection() {
-    try {
-        await mongoose.connect(MONGO_URI);
-        console.log('Connected successfully!');
-        
-        const collections = await mongoose.connection.db.listCollections().toArray();
-        console.log('Collections found:', collections.map(c => c.name));
-        
-        // Count documents in leads
-        const leadsCount = await mongoose.connection.db.collection('leads').countDocuments();
-        console.log('Number of leads:', leadsCount);
+async function testDB() {
+    console.log('Connecting to MongoDB...');
+    await mongoose.connect(MONGO_URI);
+    console.log('Connected!');
 
-        // Count documents in api-leads
-        const apiLeadsCount = await mongoose.connection.db.collection('apileads').countDocuments();
-        console.log('Number of api-leads:', apiLeadsCount);
+    const LeadSchema = new mongoose.Schema({}, { strict: false });
+    const Lead = mongoose.model('Lead', LeadSchema, 'leads');
 
-        await mongoose.disconnect();
-    } catch (err) {
-        console.error('Connection failed:', err);
-    }
+    const totalLeads = await Lead.countDocuments({});
+    console.log(`Total Leads in DB: ${totalLeads}`);
+
+    // Sample 1 lead
+    const sample = await Lead.findOne({});
+    console.log('Sample Lead:', sample);
+
+    await mongoose.disconnect();
 }
 
-testConnection();
+testDB().catch(console.error);

@@ -62,6 +62,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             if (res.ok) {
                 const data = await res.json();
+                if (typeof window !== 'undefined') {
+                    localStorage.setItem('authToken', data.token);
+                    localStorage.setItem('authUser', JSON.stringify(data.user));
+                }
                 setUser(data.user);
                 setToken(data.token);
                 return true;
@@ -74,6 +78,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     const logout = () => {
+        if (typeof window !== 'undefined') {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('authUser');
+        }
         setUser(null);
         setToken(null);
     };

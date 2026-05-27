@@ -1,82 +1,49 @@
-import { useState } from 'react';
-import { useLeads } from '../../context/LeadsContext';
-import { isSameDay, parseISO, startOfDay, format } from 'date-fns';
+import { useState, useEffect } from 'react';
+import { isSameDay, parseISO, format } from 'date-fns';
 import { PieChart, TrendingUp, AlertCircle, Calendar as CalendarIcon } from 'lucide-react';
+import { authenticatedFetch } from '../../utils/api';
 
 export function WorkingReport() {
-    const { leads, users } = useLeads();
-
     const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+    const [reportData, setReportData] = useState<{ cumulativeData: any[]; dailyData: any[] } | null>(null);
+    const [loading, setLoading] = useState(true);
 
-    const today = startOfDay(new Date());
-    const now = new Date();
-    const isAfter6PM = now.getHours() >= 18;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    // 1. Cumulative KPI Data (Historical up to Yesterday)
-    const cumulativeData = users.map(user => {
-        const userLeads = leads.filter(l => {
-            const assignedToId = typeof l.assignedTo === 'object' ? l.assignedTo?._id : l.assignedTo;
-            return assignedToId === user._id;
-        });
-
-        const userHistory = leads.flatMap(l => (l.followupHistory || []).filter(h => h.userId === user._id));
-
-        // Everything scheduled BEFORE today
-        const historicalHandled = userHistory.filter(h => h.scheduledDate && startOfDay(parseISO(h.scheduledDate)) < today);
-        const completed = historicalHandled.filter(h => h.result === 'responded').length;
-        const noResponse = historicalHandled.filter(h => h.result === 'not_responded').length;
-
-        // Everything STILL PENDING scheduled BEFORE today
-        const missed = userLeads.filter(l => {
-            if (!l.followupDate) return false;
-            return startOfDay(parseISO(l.followupDate as string)) < today;
-        }).length;
-
-        const total = historicalHandled.length + missed;
-
-        return { ...user, total, completed, noResponse, missed };
-    });
-
-    // 2. Daily Performance Data (Selected Date)
-    const dailyData = users.map(user => {
-        const userLeads = leads.filter(l => {
-            const assignedToId = typeof l.assignedTo === 'object' ? l.assignedTo?._id : l.assignedTo;
-            return assignedToId === user._id;
-        });
-
-        const filterDate = startOfDay(parseISO(selectedDate));
-        const isToday = isSameDay(filterDate, today);
-        
-        const userHistory = leads.flatMap(l => (l.followupHistory || []).filter(h => h.userId === user._id));
-
-        const dailyHandled = userHistory.filter(h => h.scheduledDate && isSameDay(parseISO(h.scheduledDate), filterDate));
-        const completed = dailyHandled.filter(h => h.result === 'responded').length;
-        const noResponse = dailyHandled.filter(h => h.result === 'not_responded').length;
-
-        const dailyPending = userLeads.filter(l => {
-            if (!l.followupDate) return false;
-            return isSameDay(parseISO(l.followupDate as string), filterDate);
-        }).length;
-
-        const upcoming = userLeads.filter(l => {
-            if (!l.followupDate) return false;
-            return startOfDay(parseISO(l.followupDate as string)) > today;
-        }).length;
-
-        // Missed logic for the specific day
-        const missed = (filterDate < today || (isToday && isAfter6PM)) ? dailyPending : 0;
-        const scheduled = dailyHandled.length + dailyPending;
-
-        return { 
-            ...user, 
-            scheduled, 
-            completed, 
-            noResponse, 
-            missed, 
-            upcoming,
-            isFinalized: !isToday || isAfter6PM
+    useEffect(() => {
+        let isMounted = true;
+        const fetchReport = async () => {
+            try {
+                setLoading(true);
+                const res = await authenticatedFetch(`/api/reports/working?date=${selectedDate}`);
+                if (res.ok && isMounted) {
+                    const data = await res.json();
+                    setReportData(data);
+                }
+            } catch (err) {
+                console.error('Failed to fetch working report', err);
+            } finally {
+                if (isMounted) setLoading(false);
+            }
         };
-    });
+        fetchReport();
+        return () => {
+            isMounted = false;
+        };
+    }, [selectedDate]);
+
+    const cumulativeData = reportData?.cumulativeData || [];
+    const dailyData = reportData?.dailyData || [];
+
+    if (loading && !reportData) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+                <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-gray-500 font-medium animate-pulse">Analyzing representative performance...</p>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col gap-10">

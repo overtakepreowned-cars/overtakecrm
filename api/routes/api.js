@@ -36,6 +36,8 @@ router.post('/smartlists', metadataController.createSmartList);
 router.delete('/smartlists/:id', metadataController.deleteSmartList);
 
 // Leads
+router.get('/reports/working', leadsController.getWorkingReport);
+router.get('/leads/stats', leadsController.getLeadsStats);
 router.get('/leads', leadsController.getLeads);
 router.get('/leads/:id', leadsController.getLeadById);
 router.post('/leads', leadValidation, validate, leadsController.createLead);

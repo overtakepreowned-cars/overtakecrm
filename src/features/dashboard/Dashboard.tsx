@@ -1,78 +1,31 @@
 import { Users, PhoneCall, Zap, Calendar as CalendarIcon } from 'lucide-react';
 import { useLeads } from '../../context/LeadsContext';
-import { isSameDay, parseISO } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 
 export function Dashboard() {
-    const { leads, apiLeads, users, loading, error } = useLeads();
+    const { apiLeads, users, loading, error, stats } = useLeads();
     const navigate = useNavigate();
 
-    const today = new Date();
-    const hotLeads = leads.filter(l => l.leadType === 'hot').length;
-    const warmLeads = leads.filter(l => l.leadType === 'warm').length;
-    const coldLeads = leads.filter(l => l.leadType === 'cold').length;
-    const unassignedLeads = leads.filter(l => !l.assignedTo).length;
-    const advancePayments = leads.filter(l => l.paymentStatus === 'Advance Payment').length;
-
-    const todaysFollowupsCount = leads.filter(l => {
-        if (!l.followupDate || l.status === 'booking_confirmed' || l.status === 'deal_closed') return false;
-        return isSameDay(parseISO(l.followupDate), today);
-    }).length;
-
-    const missedFollowups = leads.filter(l => {
-        if (!l.followupDate || l.status === 'booking_confirmed' || l.status === 'deal_closed') return false;
-        const fDate = parseISO(l.followupDate);
-        return fDate < today && !isSameDay(today, fDate);
-    }).length;
-
     const row1 = [
-        { title: 'Hot Leads', value: hotLeads, icon: Zap, color: 'text-red-500', bg: 'bg-red-50' },
-        { title: 'Warm Leads', value: warmLeads, icon: PhoneCall, color: 'text-amber-500', bg: 'bg-amber-50' },
-        { title: 'Cold Leads', value: coldLeads, icon: Users, color: 'text-blue-500', bg: 'bg-blue-50' },
-        { title: 'Total Leads', value: leads.length, icon: CalendarIcon, color: 'text-gray-600', bg: 'bg-gray-50' },
+        { title: 'Hot Leads', value: stats?.hot || 0, icon: Zap, color: 'text-red-500', bg: 'bg-red-50' },
+        { title: 'Warm Leads', value: stats?.warm || 0, icon: PhoneCall, color: 'text-amber-500', bg: 'bg-amber-50' },
+        { title: 'Cold Leads', value: stats?.cold || 0, icon: Users, color: 'text-blue-500', bg: 'bg-blue-50' },
+        { title: 'Total Leads', value: stats?.total || 0, icon: CalendarIcon, color: 'text-gray-600', bg: 'bg-gray-50' },
     ];
 
     const row2 = [
-        { title: 'Unassigned', value: unassignedLeads, icon: CalendarIcon, color: 'text-orange-500', bg: 'bg-orange-50' },
-        { title: 'Advance Payment', value: advancePayments, icon: Zap, color: 'text-[#1B1B19]', bg: 'bg-gray-50' },
-        { title: 'Today\'s Follow-ups', value: todaysFollowupsCount, icon: CalendarIcon, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-        { title: 'Missed Follow-ups', value: missedFollowups, icon: Zap, color: 'text-red-600', bg: 'bg-red-50' },
+        { title: 'Unassigned', value: stats?.unassigned || 0, icon: CalendarIcon, color: 'text-orange-500', bg: 'bg-orange-50' },
+        { title: 'Advance Payment', value: stats?.advancePayment || 0, icon: Zap, color: 'text-[#1B1B19]', bg: 'bg-gray-50' },
+        { title: 'Today\'s Follow-ups', value: stats?.todayFollowups || 0, icon: CalendarIcon, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+        { title: 'Missed Follow-ups', value: stats?.missedFollowups || 0, icon: Zap, color: 'text-red-600', bg: 'bg-red-50' },
     ];
 
-    const originBreakdown = leads.reduce((acc, lead) => {
-        const origin = (lead.leadOrigin || 'other').trim().toLowerCase();
-        acc[origin] = (acc[origin] || 0) + 1;
-        return acc;
-    }, {} as Record<string, number>);
+    const originBreakdown = (stats?.originBreakdown || {}) as Record<string, number>;
+    const statusBreakdown = (stats?.statusBreakdown || {}) as Record<string, number>;
 
-    const statusBreakdown = leads.reduce((acc, lead) => {
-        acc[lead.status] = (acc[lead.status] || 0) + 1;
-        return acc;
-    }, {} as Record<string, number>);
+    const userPerformance = (stats?.userPerformance || []) as any[];
 
-    // Per-user statistics
-    const userPerformance = users.map(user => {
-        const userLeads = leads.filter(l => {
-            const assignedId = typeof l.assignedTo === 'object' ? l.assignedTo?._id : l.assignedTo;
-            return assignedId === user._id;
-        });
-
-        const todayFollowups = userLeads.filter(l => l.followupDate && isSameDay(parseISO(l.followupDate), today) && l.status !== 'booking_confirmed' && l.status !== 'deal_closed').length;
-        const missedUFollowups = userLeads.filter(l => {
-            if (!l.followupDate || l.status === 'booking_confirmed' || l.status === 'deal_closed') return false;
-            const fDate = parseISO(l.followupDate);
-            return fDate < today && !isSameDay(today, fDate);
-        }).length;
-
-        return {
-            ...user,
-            totalAssigned: userLeads.length,
-            todayFollowups,
-            missedFollowups: missedUFollowups
-        };
-    });
-
-    if (loading && leads.length === 0) {
+    if (loading && !stats) {
         return (
             <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
                 <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
@@ -81,7 +34,7 @@ export function Dashboard() {
         );
     }
 
-    if (error && leads.length === 0) {
+    if (error && !stats) {
         return (
             <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 p-8 bg-red-50 rounded-2xl border border-red-100">
                 <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center">
@@ -111,11 +64,11 @@ export function Dashboard() {
                 </div>
             )}
             
-            {missedFollowups > 0 && (
+            {stats?.missedFollowups > 0 && (
                 <div className="flex items-center justify-between rounded-xl border border-red-100 bg-red-50 px-6 py-4 animate-pulse">
                     <div className="flex items-center gap-3 text-red-700">
                         <Zap size={20} className="fill-current" />
-                        <span className="font-bold text-sm">Action Required: You have {missedFollowups} missed follow-ups!</span>
+                        <span className="font-bold text-sm">Action Required: You have {stats.missedFollowups} missed follow-ups!</span>
                     </div>
                     <button
                         onClick={() => navigate('/followups')}
@@ -201,7 +154,7 @@ export function Dashboard() {
                         </div>
                         <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-50 rounded-lg border border-orange-100">
                             <span className="text-[10px] font-bold uppercase text-orange-400">Unassigned Leads</span>
-                            <span className="text-sm font-bold text-orange-700">{unassignedLeads}</span>
+                            <span className="text-sm font-bold text-orange-700">{stats?.unassigned || 0}</span>
                         </div>
                     </div>
                 </div>

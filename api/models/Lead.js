@@ -79,4 +79,17 @@ const leadSchema = new mongoose.Schema({
     referredBy: { type: String }
 }, { timestamps: true });
 
+// Define database indexes for optimized query and aggregation plans
+leadSchema.index({ status: 1 });
+leadSchema.index({ leadType: 1 });
+leadSchema.index({ assignedTo: 1 });
+leadSchema.index({ followupDate: 1 });
+leadSchema.index({ createdAt: -1 });
+
+// Compound indexes to speed up multi-field pipeline filters, Kanban boards, and followup views
+leadSchema.index({ status: 1, leadType: 1, createdAt: -1 });
+leadSchema.index({ assignedTo: 1, status: 1 });
+leadSchema.index({ followupDate: 1, status: 1 });
+
 export default mongoose.model('Lead', leadSchema);
+

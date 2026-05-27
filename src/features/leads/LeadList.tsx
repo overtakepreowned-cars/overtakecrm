@@ -1,8 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLeads } from '../../context/LeadsContext';
 import { Search, Filter, X, Briefcase, Bookmark, MoreHorizontal, Trash2, UserPlus, CheckCircle2, Phone, Car, Edit3, Save, User as UserIcon, AlertTriangle, Calendar, Upload } from 'lucide-react';
-import { isSameDay, parseISO, format } from 'date-fns';
+import { parseISO, format } from 'date-fns';
 import { Lead, CarDetail, ApiLeadEditData, LeadFilter } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { LeadImportModal } from './LeadImportModal';
@@ -15,7 +15,7 @@ interface LeadListProps {
 }
 
 export function LeadList({ initialFilter = 'all' }: LeadListProps) {
-    const { leads, apiLeads, addSmartList, users, deleteApiLead, approveApiLead, updateApiLead, bulkDeleteLeads, bulkAssignLeads, bulkUpdateLeads, bulkUpdatePhonePrefix, smartLists, deleteSmartList, tags, addTag, loading, error } = useLeads();
+    const { leads, apiLeads, addSmartList, users, deleteApiLead, approveApiLead, updateApiLead, bulkDeleteLeads, bulkAssignLeads, bulkUpdateLeads, bulkUpdatePhonePrefix, smartLists, deleteSmartList, tags, addTag, loading, error, fetchLeads, totalLeads, clearLeads } = useLeads();
     const { isAdmin } = useAuth();
 
     const [currentMode, setCurrentMode] = useState<'all' | 'followup' | 'smartlist' | 'apileads'>(initialFilter);
@@ -23,6 +23,12 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
 
     // Selection state
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+    useEffect(() => {
+        return () => {
+            clearLeads();
+        };
+    }, []);
 
     // Filter states (these are the ACTIVE filters used for calculation)
     const [searchTerm, setSearchTerm] = useState('');
@@ -163,6 +169,36 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
         setBookMethodFilter('all');
     };
 
+    const hasActiveAdvancedFilters = useMemo(() => {
+        return (
+            nameFilter !== '' ||
+            phoneFilter !== '' ||
+            countryCodeFilter !== '' ||
+            statusFilter !== 'all' ||
+            leadTypeFilter !== 'all' ||
+            leadOriginFilter !== 'all' ||
+            placeFilter !== '' ||
+            designationFilter !== '' ||
+            tagFilterTags.length > 0 ||
+            dateFilter !== '' ||
+            assignedToFilter !== 'all' ||
+            paymentStatusFilter !== 'all' ||
+            intentFilter !== 'all' ||
+            brandFilter !== '' ||
+            modelFilter !== '' ||
+            fuelTypeFilter !== 'all' ||
+            yearFilter !== '' ||
+            kmDrivenFilter !== '' ||
+            amountFilter !== '' ||
+            bookMethodFilter !== 'all'
+        );
+    }, [
+        nameFilter, phoneFilter, countryCodeFilter, statusFilter, leadTypeFilter, leadOriginFilter,
+        placeFilter, designationFilter, tagFilterTags, dateFilter, assignedToFilter,
+        paymentStatusFilter, intentFilter, brandFilter, modelFilter, fuelTypeFilter,
+        yearFilter, kmDrivenFilter, amountFilter, bookMethodFilter
+    ]);
+
     const [isSmartListModalOpen, setIsSmartListModalOpen] = useState(false);
     const [smartListName, setSmartListName] = useState('');
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -230,12 +266,39 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
     // Pagination state
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(20);
+    const [debouncedSearch, setDebouncedSearch] = useState(searchTerm);
+
+    useEffect(() => {
+        const timer = setTimeout(() => setDebouncedSearch(searchTerm), 500);
+        return () => clearTimeout(timer);
+    }, [searchTerm]);
+
+    const hasActiveFilters = !!(
+        searchTerm ||
+        nameFilter ||
+        phoneFilter ||
+        placeFilter ||
+        designationFilter ||
+        tagFilterTags.length > 0 ||
+        dateFilter ||
+        statusFilter !== 'all' ||
+        leadTypeFilter !== 'all' ||
+        leadOriginFilter !== 'all' ||
+        assignedToFilter !== 'all' ||
+        paymentStatusFilter !== 'all' ||
+        bookMethodFilter !== 'all' ||
+        intentFilter !== 'all' ||
+        !!brandFilter ||
+        !!modelFilter ||
+        (fuelTypeFilter !== 'all' && !!fuelTypeFilter) ||
+        !!yearFilter ||
+        !!kmDrivenFilter ||
+        !!amountFilter ||
+        !!countryCodeFilter
+    );
 
     // Apply filters
     const filteredLeads = useMemo(() => {
-        const activeSmartList = smartLists.find(l => l._id === activeSmartListId);
-        const smartListFilter = activeSmartList?.filters;
-
         if (currentMode === 'apileads') {
             return apiLeads.filter(lead => {
                 if (searchTerm) {
@@ -249,368 +312,74 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                 return true;
             });
         }
+        return leads;
+    }, [leads, apiLeads, currentMode, searchTerm]);
 
-        return leads.filter(lead => {
-            // Priority: Quick Search
-            if (searchTerm) {
-                const searchLower = searchTerm.toLowerCase();
-                const searchDigits = searchTerm.replace(/\D/g, '');
-                const phoneDigits = lead.phone.replace(/\D/g, '');
+    // Triggers reactive query fetching on the server side using single/compound indexes
+    useEffect(() => {
+        if (currentMode === 'apileads') return;
 
-                return (
-                    lead.name.toLowerCase().includes(searchLower) ||
-                    lead.phone.includes(searchLower) ||
-                    (searchDigits && phoneDigits.includes(searchDigits)) ||
-                    (lead.place && lead.place.toLowerCase().includes(searchLower)) ||
-                    lead.tags.some(t => (typeof t === 'string' ? t : t.name).toLowerCase().includes(searchLower)) ||
-                    lead.carDetails?.some(c => `${c.brandName} ${c.modelName}`.toLowerCase().includes(searchLower))
-                );
+        const params: Record<string, any> = {
+            page: currentPage - 1,
+            limit: pageSize,
+            search: debouncedSearch
+        };
+
+        if (currentMode === 'followup') {
+            params.hasFollowup = 'true';
+        } else if (currentMode === 'smartlist') {
+            const activeSmartList = smartLists.find(l => l._id === activeSmartListId);
+            if (activeSmartList?.filters) {
+                Object.assign(params, activeSmartList.filters);
             }
+        }
 
-            // Mode: Follow-up
-            if (currentMode === 'followup') {
-                if (!lead.followupDate) return false;
-                const today = new Date();
-                const leadDate = parseISO(lead.followupDate as string);
-                if (!isSameDay(today, leadDate)) return false;
-            }
+        // Add user-applied filters
+        if (nameFilter) params.name = nameFilter;
+        if (phoneFilter) params.phone = phoneFilter;
+        if (placeFilter) params.place = placeFilter;
+        if (designationFilter) params.designation = designationFilter;
+        if (tagFilterTags.length > 0) params.tags = tagFilterTags.join(',');
+        if (dateFilter) params.date = dateFilter;
+        if (statusFilter !== 'all') params.status = statusFilter;
+        if (leadTypeFilter !== 'all') params.leadType = leadTypeFilter;
+        if (leadOriginFilter !== 'all') params.leadOrigin = leadOriginFilter;
+        if (assignedToFilter !== 'all') params.assignedTo = assignedToFilter;
+        if (paymentStatusFilter !== 'all') params.paymentStatus = paymentStatusFilter;
+        if (bookMethodFilter !== 'all') params.bookMethod = bookMethodFilter;
+        if (intentFilter !== 'all') params.intent = intentFilter;
+        if (brandFilter) params.brand = brandFilter;
+        if (modelFilter) params.model = modelFilter;
+        if (fuelTypeFilter !== 'all') params.fuelType = fuelTypeFilter;
+        if (yearFilter) params.year = yearFilter;
+        if (countryCodeFilter) params.countryCode = countryCodeFilter;
 
-            // Mode: Smart List (Saved Filters)
-            if (currentMode === 'smartlist' && smartListFilter) {
-                if (smartListFilter.selectedIds && smartListFilter.selectedIds.length > 0) {
-                    if (!smartListFilter.selectedIds.includes(lead._id)) return false;
-                }
-                if (smartListFilter.name && !lead.name.toLowerCase().includes(smartListFilter.name.toLowerCase())) return false;
-
-                // Smart list phone logic
-                const searchPhone = smartListFilter.phone;
-                const searchCC = smartListFilter.countryCode;
-
-                if (searchCC === 'none') {
-                    if (lead.phone.startsWith('+')) return false;
-                } else if (searchCC && !lead.phone.startsWith(searchCC)) {
-                    return false;
-                }
-
-                if (searchPhone) {
-                    const localDigits = lead.phone.replace(searchCC || '', '');
-                    if (!lead.phone.includes(searchPhone) && !localDigits.includes(searchPhone)) return false;
-                }
-                if (smartListFilter.place && (!lead.place || !lead.place.toLowerCase().includes(smartListFilter.place.toLowerCase()))) return false;
-                if (smartListFilter.designation && (!lead.designation || !lead.designation.toLowerCase().includes(smartListFilter.designation.toLowerCase()))) return false;
-                if (smartListFilter.tag && !lead.tags.some(t => (typeof t === 'string' ? t : t.name).toLowerCase().includes(smartListFilter.tag!.toLowerCase()))) return false;
-                if (smartListFilter.status && smartListFilter.status !== 'all' && lead.status !== smartListFilter.status) return false;
-                if (smartListFilter.leadType && smartListFilter.leadType !== 'all' && lead.leadType !== smartListFilter.leadType) return false;
-                if (smartListFilter.leadOrigin && smartListFilter.leadOrigin !== 'all' && lead.leadOrigin !== smartListFilter.leadOrigin) return false;
-
-                if (smartListFilter.paymentStatus && lead.paymentStatus !== smartListFilter.paymentStatus) return false;
-                if (smartListFilter.bookMethod && lead.bookMethod !== smartListFilter.bookMethod) return false;
-
-                // Car / intent based filters for smart lists
-                if (
-                    smartListFilter.intent ||
-                    smartListFilter.brandName ||
-                    smartListFilter.modelName ||
-                    smartListFilter.fuelType ||
-                    smartListFilter.year ||
-                    smartListFilter.kmDrivenValue ||
-                    smartListFilter.amountValue
-                ) {
-                    if (!lead.carDetails || lead.carDetails.length === 0) return false;
-
-                    const matchesCarFilters = lead.carDetails.some(car => {
-                        // Intent
-                        if (smartListFilter.intent && smartListFilter.intent !== 'all' && car.intent !== smartListFilter.intent) {
-                            return false;
-                        }
-
-                        const brandTerm = smartListFilter.brandName?.toLowerCase().trim();
-                        if (brandTerm) {
-                            const brandCandidates = [
-                                car.brandName,
-                                car.wantedCar?.brandName,
-                                car.ownedCar?.brandName
-                            ].filter(Boolean).map(v => (v as string).toLowerCase());
-
-                            if (!brandCandidates.some(b => b.includes(brandTerm))) {
-                                return false;
-                            }
-                        }
-
-                        const modelTerm = smartListFilter.modelName?.toLowerCase().trim();
-                        if (modelTerm) {
-                            const modelCandidates = [
-                                car.modelName,
-                                car.wantedCar?.modelName,
-                                car.ownedCar?.modelName
-                            ].filter(Boolean).map(v => (v as string).toLowerCase());
-
-                            if (!modelCandidates.some(m => m.includes(modelTerm))) {
-                                return false;
-                            }
-                        }
-
-                        const fuelFilter = smartListFilter.fuelType?.trim();
-                        if (fuelFilter) {
-                            const fuelCandidates = [
-                                car.fuelType,
-                                car.wantedCar?.fuelType,
-                                car.ownedCar?.fuelType
-                            ].filter(Boolean);
-
-                            if (!fuelCandidates.some(f => f === fuelFilter)) {
-                                return false;
-                            }
-                        }
-
-                        const yearFilterValue = smartListFilter.year?.trim();
-                        if (yearFilterValue) {
-                            const yearCandidates = [
-                                car.wantedCar?.year,
-                                car.ownedCar?.year
-                            ].filter(Boolean);
-
-                            if (!yearCandidates.some(y => y === yearFilterValue)) {
-                                return false;
-                            }
-                        }
-
-                        const kmValue = smartListFilter.kmDrivenValue?.trim();
-                        if (kmValue) {
-                            const target = Number(kmValue);
-                            if (!Number.isFinite(target)) return false;
-
-                            const kmCandidates = [
-                                car.kmDriven,
-                                car.wantedCar?.kmDriven,
-                                car.ownedCar?.kmDriven
-                            ]
-                                .map(v => (v ? Number(v) : NaN))
-                                .filter(v => Number.isFinite(v));
-
-                            if (kmCandidates.length === 0) return false;
-
-                            const op = smartListFilter.kmDrivenOp || 'eq';
-                            const kmMatches = kmCandidates.some(v => {
-                                if (op === 'gt') return v > target;
-                                if (op === 'lt') return v < target;
-                                return v === target;
-                            });
-
-                            if (!kmMatches) return false;
-                        }
-
-                        const amountValue = smartListFilter.amountValue?.trim();
-                        if (amountValue) {
-                            const target = Number(amountValue);
-                            if (!Number.isFinite(target)) return false;
-
-                            const amountCandidates = [
-                                car.wantedCar?.amount,
-                                car.ownedCar?.amount
-                            ]
-                                .map(v => (v ? Number(v) : NaN))
-                                .filter(v => Number.isFinite(v));
-
-                            if (amountCandidates.length === 0) return false;
-
-                            const op = smartListFilter.amountOp || 'eq';
-                            const amountMatches = amountCandidates.some(v => {
-                                if (op === 'gt') return v > target;
-                                if (op === 'lt') return v < target;
-                                return v === target;
-                            });
-
-                            if (!amountMatches) return false;
-                        }
-
-                        return true;
-                    });
-
-                    if (!matchesCarFilters) return false;
-                }
-
-                if (smartListFilter.assignedTo && smartListFilter.assignedTo !== 'all') {
-                    const leadAssignedId = typeof lead.assignedTo === 'object' ? lead.assignedTo?._id : lead.assignedTo;
-                    if (smartListFilter.assignedTo === 'unassigned') {
-                        if (leadAssignedId) return false;
-                    } else if (leadAssignedId !== smartListFilter.assignedTo) {
-                        return false;
-                    }
-                }
-            }
-
-            // Ad-hoc Filters (Local state)
-            if (nameFilter && !lead.name.toLowerCase().includes(nameFilter.toLowerCase())) return false;
-
-            // Ad-hoc phone logic
-            if (countryCodeFilter === 'none') {
-                if (lead.phone.startsWith('+')) return false;
-            } else if (countryCodeFilter && !lead.phone.startsWith(countryCodeFilter)) {
-                return false;
-            }
-
-            if (phoneFilter) {
-                const searchDigits = phoneFilter.replace(/\D/g, '');
-                const phoneDigits = lead.phone.replace(/\D/g, '');
-                const localDigits = lead.phone.replace(countryCodeFilter === 'none' ? '' : countryCodeFilter, '');
-                const localPartialDigits = localDigits.replace(/\D/g, '');
-
-                const matchesFull = lead.phone.includes(phoneFilter);
-                const matchesDigits = searchDigits && phoneDigits.includes(searchDigits);
-                const matchesLocal = localDigits.includes(phoneFilter) || (searchDigits && localPartialDigits.includes(searchDigits));
-
-                if (!matchesFull && !matchesDigits && !matchesLocal) return false;
-            }
-            if (placeFilter && (!lead.place || !lead.place.toLowerCase().includes(placeFilter.toLowerCase()))) return false;
-            if (designationFilter && (!lead.designation || !lead.designation.toLowerCase().includes(designationFilter.toLowerCase()))) return false;
-            if (tagFilterTags.length > 0) {
-                const leadTagNames = lead.tags.map(t => (typeof t === 'string' ? t : t.name).toLowerCase());
-                const selectedLower = tagFilterTags.map(t => t.toLowerCase());
-                const hasMatch = selectedLower.some(sel => leadTagNames.includes(sel));
-                if (!hasMatch) return false;
-            }
-            if (leadOriginFilter !== 'all' && lead.leadOrigin !== leadOriginFilter) return false;
-
-            if (paymentStatusFilter !== 'all' && lead.paymentStatus !== paymentStatusFilter) return false;
-            if (bookMethodFilter !== 'all' && lead.bookMethod !== bookMethodFilter) return false;
-
-            // Ad-hoc car / intent filters
-            if (
-                intentFilter !== 'all' ||
-                brandFilter ||
-                modelFilter ||
-                (fuelTypeFilter !== 'all' && fuelTypeFilter) ||
-                yearFilter ||
-                kmDrivenFilter ||
-                amountFilter
-            ) {
-                if (!lead.carDetails || lead.carDetails.length === 0) return false;
-
-                const matchesCarFilters = lead.carDetails.some(car => {
-                    if (intentFilter !== 'all' && car.intent !== intentFilter) {
-                        return false;
-                    }
-
-                    const brandTerm = brandFilter.toLowerCase().trim();
-                    if (brandTerm) {
-                        const brandCandidates = [
-                            car.brandName,
-                            car.wantedCar?.brandName,
-                            car.ownedCar?.brandName
-                        ].filter(Boolean).map(v => (v as string).toLowerCase());
-
-                        if (!brandCandidates.some(b => b.includes(brandTerm))) {
-                            return false;
-                        }
-                    }
-
-                    const modelTerm = modelFilter.toLowerCase().trim();
-                    if (modelTerm) {
-                        const modelCandidates = [
-                            car.modelName,
-                            car.wantedCar?.modelName,
-                            car.ownedCar?.modelName
-                        ].filter(Boolean).map(v => (v as string).toLowerCase());
-
-                        if (!modelCandidates.some(m => m.includes(modelTerm))) {
-                            return false;
-                        }
-                    }
-
-                    if (fuelTypeFilter !== 'all' && fuelTypeFilter) {
-                        const fuelCandidates = [
-                            car.fuelType,
-                            car.wantedCar?.fuelType,
-                            car.ownedCar?.fuelType
-                        ].filter(Boolean);
-
-                        if (!fuelCandidates.some(f => f === fuelTypeFilter)) {
-                            return false;
-                        }
-                    }
-
-                    const yearTerm = yearFilter.trim();
-                    if (yearTerm) {
-                        const yearCandidates = [
-                            car.wantedCar?.year,
-                            car.ownedCar?.year
-                        ].filter(Boolean);
-
-                        if (!yearCandidates.some(y => y === yearTerm)) {
-                            return false;
-                        }
-                    }
-
-                    const kmTerm = kmDrivenFilter.trim();
-                    if (kmTerm) {
-                        const target = Number(kmTerm);
-                        if (!Number.isFinite(target)) return false;
-
-                        const kmCandidates = [
-                            car.kmDriven,
-                            car.wantedCar?.kmDriven,
-                            car.ownedCar?.kmDriven
-                        ]
-                            .map(v => (v ? Number(v) : NaN))
-                            .filter(v => Number.isFinite(v));
-
-                        if (kmCandidates.length === 0) return false;
-
-                        const kmMatches = kmCandidates.some(v => {
-                            if (kmDrivenOp === 'gt') return v > target;
-                            if (kmDrivenOp === 'lt') return v < target;
-                            return v === target;
-                        });
-
-                        if (!kmMatches) return false;
-                    }
-
-                    const amountTerm = amountFilter.trim();
-                    if (amountTerm) {
-                        const target = Number(amountTerm);
-                        if (!Number.isFinite(target)) return false;
-
-                        const amountCandidates = [
-                            car.wantedCar?.amount,
-                            car.ownedCar?.amount
-                        ]
-                            .map(v => (v ? Number(v) : NaN))
-                            .filter(v => Number.isFinite(v));
-
-                        if (amountCandidates.length === 0) return false;
-
-                        const amountMatches = amountCandidates.some(v => {
-                            if (amountOp === 'gt') return v > target;
-                            if (amountOp === 'lt') return v < target;
-                            return v === target;
-                        });
-
-                        if (!amountMatches) return false;
-                    }
-
-                    return true;
-                });
-
-                if (!matchesCarFilters) return false;
-            }
-
-            if (assignedToFilter !== 'all') {
-                const leadAssignedId = typeof lead.assignedTo === 'object' ? lead.assignedTo?._id : lead.assignedTo;
-                if (assignedToFilter === 'unassigned') {
-                    if (leadAssignedId) return false;
-                } else if (leadAssignedId !== assignedToFilter) {
-                    return false;
-                }
-            }
-
-            if (statusFilter !== 'all' && lead.status !== statusFilter) return false;
-            if (leadTypeFilter !== 'all' && lead.leadType !== leadTypeFilter) return false;
-            if (dateFilter && currentMode === 'all' && lead.createdAt?.split('T')[0] !== dateFilter) return false;
-
-            return true;
-        });
-    }, [leads, apiLeads, currentMode, activeSmartListId, smartLists, searchTerm, nameFilter, phoneFilter, countryCodeFilter, placeFilter, designationFilter, tagFilterTags, dateFilter, statusFilter, leadTypeFilter, leadOriginFilter, assignedToFilter, paymentStatusFilter, bookMethodFilter, intentFilter, brandFilter, modelFilter, fuelTypeFilter, yearFilter, kmDrivenFilter, kmDrivenOp, amountFilter, amountOp]);
+        fetchLeads(params);
+    }, [
+        currentPage,
+        pageSize,
+        debouncedSearch,
+        currentMode,
+        activeSmartListId,
+        nameFilter,
+        phoneFilter,
+        placeFilter,
+        designationFilter,
+        tagFilterTags,
+        dateFilter,
+        statusFilter,
+        leadTypeFilter,
+        leadOriginFilter,
+        assignedToFilter,
+        paymentStatusFilter,
+        bookMethodFilter,
+        intentFilter,
+        brandFilter,
+        modelFilter,
+        fuelTypeFilter,
+        yearFilter,
+        countryCodeFilter
+    ]);
 
     // Reset pagination when filters change
     useMemo(() => {
@@ -618,11 +387,20 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
     }, [searchTerm, nameFilter, phoneFilter, placeFilter, designationFilter, tagFilterTags, dateFilter, statusFilter, leadTypeFilter, leadOriginFilter, assignedToFilter, paymentStatusFilter, bookMethodFilter, intentFilter, brandFilter, modelFilter, fuelTypeFilter, yearFilter, kmDrivenFilter, kmDrivenOp, amountFilter, amountOp, currentMode, activeSmartListId, pageSize]);
 
     const paginatedLeads = useMemo(() => {
-        const startIndex = (currentPage - 1) * pageSize;
-        return filteredLeads.slice(startIndex, startIndex + pageSize);
-    }, [filteredLeads, currentPage, pageSize]);
+        if (currentMode === 'apileads') {
+            const startIndex = (currentPage - 1) * pageSize;
+            return filteredLeads.slice(startIndex, startIndex + pageSize);
+        }
+        // Protect table rendering from DOM bloat if global state leads has excess/stale items (e.g. 1000 items from pipeline view)
+        return filteredLeads.slice(0, pageSize);
+    }, [filteredLeads, currentMode, currentPage, pageSize]);
 
-    const totalPages = Math.ceil(filteredLeads.length / pageSize);
+    const totalPages = useMemo(() => {
+        if (currentMode === 'apileads') {
+            return Math.ceil(filteredLeads.length / pageSize);
+        }
+        return Math.ceil(totalLeads / pageSize);
+    }, [filteredLeads, currentMode, totalLeads, pageSize]);
 
     const handleSelectAll = (checked: boolean) => {
         if (checked) {
@@ -690,29 +468,6 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
         setIsSmartListModalOpen(false);
         setSmartListName('');
     };
-
-    const hasActiveFilters =
-        searchTerm ||
-        nameFilter ||
-        phoneFilter ||
-        placeFilter ||
-        designationFilter ||
-        tagFilterTags.length > 0 ||
-        dateFilter ||
-        statusFilter !== 'all' ||
-        leadTypeFilter !== 'all' ||
-        leadOriginFilter !== 'all' ||
-        assignedToFilter !== 'all' ||
-        paymentStatusFilter !== 'all' ||
-        bookMethodFilter !== 'all' ||
-        intentFilter !== 'all' ||
-        !!brandFilter ||
-        !!modelFilter ||
-        (fuelTypeFilter !== 'all' && !!fuelTypeFilter) ||
-        !!yearFilter ||
-        !!kmDrivenFilter ||
-        !!amountFilter ||
-        !!countryCodeFilter;
 
     if (loading && leads.length === 0 && apiLeads.length === 0) {
         return (
@@ -799,7 +554,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
             <div className="flex flex-col gap-4 p-4 border-b border-gray-100 bg-white">
                 <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-bold text-gray-500">
-                        Total Contacts: <span className="text-indigo-600">{filteredLeads.length}</span>
+                        Total Contacts: <span className="text-indigo-600">{currentMode === 'apileads' ? filteredLeads.length : totalLeads}</span>
                         {selectedIds.length > 0 && <span className="ml-2 px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 text-xs">{selectedIds.length} Selected</span>}
                     </span>
                 </div>
@@ -823,6 +578,16 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                 >
                                     <Filter size={20} />
                                 </button>
+                                {hasActiveAdvancedFilters && (
+                                    <button
+                                        onClick={handleResetFilters}
+                                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-600 transition-all border border-red-100 text-xs font-bold shadow-sm whitespace-nowrap"
+                                        title="Clear Advanced Filters"
+                                    >
+                                        <X size={14} className="stroke-[3]" />
+                                        Clear Filters
+                                    </button>
+                                )}
                             </>
                         )}
                     </div>
@@ -1082,700 +847,413 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                 )}
 
                 {showAdvancedFilters && currentMode !== 'apileads' && (
-                    <div className="flex flex-col gap-4 p-4 bg-[#1B1B19] rounded-2xl border border-gray-800 animate-slideDown shadow-2xl overflow-hidden">
-                        {/* Section 1: Basic & Lead Info (Uniform 5-column grid) */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                            {/* Contact Name */}
-                            <div className="flex flex-col gap-1 relative">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Contact Name</label>
-                                <input
-                                    value={draftFilters.name}
-                                    onChange={e => setDraftFilters(prev => ({ ...prev, name: e.target.value }))}
-                                    onFocus={() => setNameFocused(true)}
-                                    onBlur={() => setTimeout(() => setNameFocused(false), 200)}
-                                    placeholder="Name..."
-                                    className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all w-full"
-                                />
-                                {nameFocused && availableNames.length > 0 && (
-                                    <div className="absolute z-50 mt-12 w-full max-h-40 overflow-y-auto rounded-xl border border-white/10 bg-[#1B1B19] shadow-2xl py-1">
-                                        {availableNames
-                                            .filter(n => !draftFilters.name || n.toLowerCase().includes(draftFilters.name.toLowerCase()))
-                                            .map(n => (
-                                                <button key={n} type="button" onMouseDown={() => setDraftFilters(prev => ({ ...prev, name: n }))} className="w-full px-3 py-1.5 text-left text-xs hover:bg-indigo-600 transition-colors font-medium text-slate-200">{n}</button>
-                                            ))}
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Phone Number */}
-                            <div className="flex flex-col gap-1 relative">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Phone Number</label>
-                                <div className="flex gap-1.5 w-full">
-                                    <select
-                                        value={draftFilters.countryCode || ''}
-                                        onChange={e => setDraftFilters(prev => ({ ...prev, countryCode: e.target.value }))}
-                                        className="text-[10px] w-20 px-2 py-1.5 rounded-xl bg-white/10 border border-white/20 text-white focus:border-indigo-500 outline-none transition-all appearance-none scrollbar-hide font-bold cursor-pointer hover:bg-white/20"
-                                        title="Search by Prefix"
-                                    >
-                                        <option value="" className="bg-[#1B1B19]">Any</option>
-                                        {COUNTRIES.map(c => (
-                                            <option key={`${c.iso}-${c.code}`} value={c.code || 'none'} className="bg-[#1B1B19]">
-                                                {c.flag} {c.code || 'None'}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <input
-                                        value={draftFilters.phone}
-                                        onChange={e => setDraftFilters(prev => ({ ...prev, phone: e.target.value }))}
-                                        onFocus={() => setPhoneFocused(true)}
-                                        onBlur={() => setTimeout(() => setPhoneFocused(false), 200)}
-                                        placeholder="Phone..."
-                                        className="text-xs flex-1 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
-                                    />
+                    <div className="fixed inset-0 z-50 overflow-hidden flex justify-end">
+                        {/* Backdrop overlay */}
+                        <div 
+                            onClick={() => setShowAdvancedFilters(false)}
+                            className="absolute inset-0 bg-black/50 backdrop-blur-[2px] animate-backdropFadeIn cursor-pointer"
+                        />
+                        
+                        {/* Side Drawer Container */}
+                        <div className="relative w-full max-w-md sm:max-w-lg h-full bg-[#1B1B19]/95 backdrop-blur-md shadow-2xl border-l border-white/10 flex flex-col animate-slideInRight z-10 text-white">
+                            
+                            {/* Sticky Drawer Header */}
+                            <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 shrink-0">
+                                <div>
+                                    <h3 className="text-sm font-bold uppercase tracking-wider text-indigo-400">Advanced Filters</h3>
+                                    <p className="text-[10px] text-slate-400 mt-0.5">Refine your lead pipeline search</p>
                                 </div>
-                                {phoneFocused && availablePhones.length > 0 && (
-                                    <div className="absolute z-50 mt-12 w-full max-h-40 overflow-y-auto rounded-xl border border-white/10 bg-[#1B1B19] shadow-2xl py-1">
-                                        {availablePhones
-                                            .filter(p => !draftFilters.phone || p.includes(draftFilters.phone))
-                                            .map(p => (
-                                                <button key={p} type="button" onMouseDown={() => setDraftFilters(prev => ({ ...prev, phone: p }))} className="w-full px-3 py-1.5 text-left text-xs hover:bg-indigo-600 transition-colors font-medium text-slate-200">{p}</button>
-                                            ))}
+                                <button 
+                                    onClick={() => setShowAdvancedFilters(false)}
+                                    className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-slate-400 hover:text-white hover:bg-white/10 transition-all cursor-pointer"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+
+                            {/* Scrollable Form Content */}
+                            <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-white/10">
+                                
+                                {/* Section 1: Lead Details */}
+                                <div className="space-y-4">
+                                    <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-white/5 pb-1.5">Lead Info</h4>
+                                    
+                                    {/* Contact Name */}
+                                    <div className="flex flex-col gap-1 relative">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Contact Name</label>
+                                        <input
+                                            value={draftFilters.name}
+                                            onChange={e => setDraftFilters(prev => ({ ...prev, name: e.target.value }))}
+                                            onFocus={() => setNameFocused(true)}
+                                            onBlur={() => setTimeout(() => setNameFocused(false), 200)}
+                                            placeholder="Name..."
+                                            className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all w-full animate-none"
+                                        />
+                                        {nameFocused && availableNames.length > 0 && (
+                                            <div className="absolute z-50 mt-12 w-full max-h-40 overflow-y-auto rounded-xl border border-white/10 bg-[#1B1B19] shadow-2xl py-1">
+                                                {availableNames
+                                                    .filter(n => !draftFilters.name || n.toLowerCase().includes(draftFilters.name.toLowerCase()))
+                                                    .map(n => (
+                                                        <button key={n} type="button" onMouseDown={() => setDraftFilters(prev => ({ ...prev, name: n }))} className="w-full px-3 py-1.5 text-left text-xs hover:bg-indigo-600 transition-colors font-medium text-slate-200">{n}</button>
+                                                    ))}
+                                            </div>
+                                        )}
                                     </div>
-                                )}
-                            </div>
 
-                            {/* Place */}
-                            <div className="flex flex-col gap-1 relative">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Place</label>
-                                <input
-                                    value={draftFilters.place}
-                                    onChange={e => setDraftFilters(prev => ({ ...prev, place: e.target.value }))}
-                                    onFocus={() => setPlaceFocused(true)}
-                                    onBlur={() => setTimeout(() => setPlaceFocused(false), 200)}
-                                    placeholder="Place..."
-                                    className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all w-full"
-                                />
-                                {placeFocused && availablePlaces.length > 0 && (
-                                    <div className="absolute z-50 mt-12 w-full max-h-40 overflow-y-auto rounded-xl border border-white/10 bg-[#1B1B19] shadow-2xl py-1">
-                                        {availablePlaces
-                                            .filter(p => !draftFilters.place || p.toLowerCase().includes(draftFilters.place.toLowerCase()))
-                                            .map(p => (
-                                                <button key={p} type="button" onMouseDown={() => setDraftFilters(prev => ({ ...prev, place: p }))} className="w-full px-3 py-1.5 text-left text-xs hover:bg-indigo-600 transition-colors font-medium text-slate-200">{p}</button>
-                                            ))}
+                                    {/* Phone Number */}
+                                    <div className="flex flex-col gap-1 relative">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Phone Number</label>
+                                        <div className="flex gap-1.5 w-full">
+                                            <select
+                                                value={draftFilters.countryCode || ''}
+                                                onChange={e => setDraftFilters(prev => ({ ...prev, countryCode: e.target.value }))}
+                                                className="text-[10px] w-20 px-2 py-1.5 rounded-xl bg-white/10 border border-white/20 text-white focus:border-indigo-500 outline-none transition-all appearance-none scrollbar-hide font-bold cursor-pointer hover:bg-white/20"
+                                                title="Search by Prefix"
+                                            >
+                                                <option value="" className="bg-[#1B1B19]">Any</option>
+                                                {COUNTRIES.map(c => (
+                                                    <option key={`${c.iso}-${c.code}`} value={c.code || 'none'} className="bg-[#1B1B19]">
+                                                        {c.flag} {c.code || 'None'}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <input
+                                                value={draftFilters.phone}
+                                                onChange={e => setDraftFilters(prev => ({ ...prev, phone: e.target.value }))}
+                                                onFocus={() => setPhoneFocused(true)}
+                                                onBlur={() => setTimeout(() => setPhoneFocused(false), 200)}
+                                                placeholder="Phone..."
+                                                className="text-xs flex-1 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
+                                            />
+                                        </div>
+                                        {phoneFocused && availablePhones.length > 0 && (
+                                            <div className="absolute z-50 mt-12 w-full max-h-40 overflow-y-auto rounded-xl border border-white/10 bg-[#1B1B19] shadow-2xl py-1">
+                                                {availablePhones
+                                                    .filter(p => !draftFilters.phone || p.includes(draftFilters.phone))
+                                                    .map(p => (
+                                                        <button key={p} type="button" onMouseDown={() => setDraftFilters(prev => ({ ...prev, phone: p }))} className="w-full px-3 py-1.5 text-left text-xs hover:bg-indigo-600 transition-colors font-medium text-slate-200">{p}</button>
+                                                    ))}
+                                            </div>
+                                        )}
                                     </div>
-                                )}
-                            </div>
 
-                            {/* Designation */}
-                            <div className="flex flex-col gap-1 relative">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Designation</label>
-                                <input
-                                    value={draftFilters.designation}
-                                    onChange={e => setDraftFilters(prev => ({ ...prev, designation: e.target.value }))}
-                                    onFocus={() => setDesignationFocused(true)}
-                                    onBlur={() => setTimeout(() => setDesignationFocused(false), 200)}
-                                    placeholder="Designation..."
-                                    className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all w-full"
-                                />
-                                {designationFocused && availableDesignations.length > 0 && (
-                                    <div className="absolute z-50 mt-12 w-full max-h-40 overflow-y-auto rounded-xl border border-white/10 bg-[#1B1B19] shadow-2xl py-1">
-                                        {availableDesignations
-                                            .filter(d => !draftFilters.designation || d.toLowerCase().includes(draftFilters.designation.toLowerCase()))
-                                            .map(d => (
-                                                <button key={d} type="button" onMouseDown={() => setDraftFilters(prev => ({ ...prev, designation: d }))} className="w-full px-3 py-1.5 text-left text-xs hover:bg-indigo-600 transition-colors font-medium text-slate-200">{d}</button>
-                                            ))}
+                                    {/* Place */}
+                                    <div className="flex flex-col gap-1 relative">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Place</label>
+                                        <input
+                                            value={draftFilters.place}
+                                            onChange={e => setDraftFilters(prev => ({ ...prev, place: e.target.value }))}
+                                            onFocus={() => setPlaceFocused(true)}
+                                            onBlur={() => setTimeout(() => setPlaceFocused(false), 200)}
+                                            placeholder="Place..."
+                                            className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all w-full"
+                                        />
+                                        {placeFocused && availablePlaces.length > 0 && (
+                                            <div className="absolute z-50 mt-12 w-full max-h-40 overflow-y-auto rounded-xl border border-white/10 bg-[#1B1B19] shadow-2xl py-1">
+                                                {availablePlaces
+                                                    .filter(p => !draftFilters.place || p.toLowerCase().includes(draftFilters.place.toLowerCase()))
+                                                    .map(p => (
+                                                        <button key={p} type="button" onMouseDown={() => setDraftFilters(prev => ({ ...prev, place: p }))} className="w-full px-3 py-1.5 text-left text-xs hover:bg-indigo-600 transition-colors font-medium text-slate-200">{p}</button>
+                                                    ))}
+                                            </div>
+                                        )}
                                     </div>
-                                )}
-                            </div>
 
-                            {/* Status */}
-                            <div className="flex flex-col gap-1">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Status</label>
-                                <select value={draftFilters.status} onChange={e => setDraftFilters(prev => ({ ...prev, status: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full">
-                                    <option value="all">Any Status</option>
-                                    <option value="new">New</option>
-                                    <option value="contacted">Contacted</option>
-                                    <option value="booking_confirmed">Booking Confirmed</option>
-                                    <option value="deal_closed">Deal Closed</option>
-                                </select>
-                            </div>
-
-                            {/* Type */}
-                            <div className="flex flex-col gap-1">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Type</label>
-                                <select value={draftFilters.leadType} onChange={e => setDraftFilters(prev => ({ ...prev, leadType: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full">
-                                    <option value="all">Any Type</option>
-                                    <option value="hot">Hot</option>
-                                    <option value="warm">Warm</option>
-                                    <option value="cold">Cold</option>
-                                </select>
-                            </div>
-
-                            {/* Origin */}
-                            <div className="flex flex-col gap-1">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Origin</label>
-                                <select value={draftFilters.leadOrigin} onChange={e => setDraftFilters(prev => ({ ...prev, leadOrigin: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full">
-                                    <option value="all">Any Origin</option>
-                                    <option value="whatsapp">WhatsApp</option>
-                                    <option value="insta">Instagram</option>
-                                    <option value="fb">Facebook</option>
-                                    <option value="walk-in">Walk-in</option>
-                                    <option value="tele">Tele Caller</option>
-                                    <option value="referral">Referral</option>
-                                    <option value="web">Website</option>
-                                    <option value="olx">OLX</option>
-                                    <option value="team-tech">Team-Tech</option>
-                                    <option value="other">Other</option>
-                                </select>
-                            </div>
-
-                            {/* Owner */}
-                            <div className="flex flex-col gap-1">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Owner</label>
-                                <select value={draftFilters.assignedTo} onChange={e => setDraftFilters(prev => ({ ...prev, assignedTo: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full">
-                                    <option value="all">Any Owner</option>
-                                    <option value="unassigned">Unassigned</option>
-                                    {users.map(u => <option key={u._id} value={u._id}>{u.username}</option>)}
-                                </select>
-                            </div>
-
-                            {/* Creation Date */}
-                            <div className="flex flex-col gap-1">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Creation Date</label>
-                                <input type="date" value={draftFilters.date} onChange={e => setDraftFilters(prev => ({ ...prev, date: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium color-scheme-dark w-full" title="Filter by creation date" />
-                            </div>
-
-                            {/* Tags */}
-                            <div className="flex flex-col gap-1">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Tags</label>
-                                <TagInput
-                                    selectedTags={draftFilters.tags}
-                                    onTagsChange={tags => setDraftFilters(prev => ({ ...prev, tags }))}
-                                    availableTags={availableTags}
-                                    placeholder="Select tags..."
-                                    isDark={true}
-                                />
-                            </div>
-                        </div>
-
-                        {/* Section 2: Payment, Vehicle & Budget (Uniform 5-column grid) */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-3 border-t border-white/10 pt-3">
-                            <div className="flex flex-col gap-1">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Payment</label>
-                                <select value={draftFilters.paymentStatus} onChange={e => setDraftFilters(prev => ({ ...prev, paymentStatus: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full">
-                                    <option value="all">Any Payment</option>
-                                    <option value="">None</option>
-                                    <option value="advance payment">Advance</option>
-                                    <option value="full payment">Full</option>
-                                </select>
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Method</label>
-                                <select value={draftFilters.bookMethod} onChange={e => setDraftFilters(prev => ({ ...prev, bookMethod: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full">
-                                    <option value="all">Any Method</option>
-                                    <option value="">None</option>
-                                    <option value="loan">Loan</option>
-                                    <option value="cash">Cash</option>
-                                </select>
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Intent</label>
-                                <select value={draftFilters.intent} onChange={e => setDraftFilters(prev => ({ ...prev, intent: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full">
-                                    <option value="all">Any Intent</option>
-                                    <option value="buying">Buying</option>
-                                    <option value="selling">Selling</option>
-                                    <option value="exchange">Exchange</option>
-                                </select>
-                            </div>
-
-                            {/* Brand with suggestions */}
-                            <div className="flex flex-col gap-1 relative">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Brand</label>
-                                <input
-                                    value={draftFilters.brand}
-                                    onChange={e => setDraftFilters(prev => ({ ...prev, brand: e.target.value }))}
-                                    onFocus={() => setBrandFocused(true)}
-                                    onBlur={() => setTimeout(() => setBrandFocused(false), 200)}
-                                    placeholder="Brand..."
-                                    className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all w-full"
-                                />
-                                {brandFocused && availableBrandNames.length > 0 && (
-                                    <div className="absolute z-50 mt-12 w-full max-h-40 overflow-y-auto rounded-xl border border-white/10 bg-[#1B1B19] shadow-2xl py-1">
-                                        {availableBrandNames
-                                            .filter(b => !draftFilters.brand || b.toLowerCase().includes(draftFilters.brand.toLowerCase()))
-                                            .map(b => (
-                                                <button key={b} type="button" onMouseDown={() => setDraftFilters(prev => ({ ...prev, brand: b }))} className="w-full px-3 py-1.5 text-left text-xs hover:bg-indigo-600 transition-colors font-medium text-slate-200">{b}</button>
-                                            ))}
+                                    {/* Designation */}
+                                    <div className="flex flex-col gap-1 relative">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Designation</label>
+                                        <input
+                                            value={draftFilters.designation}
+                                            onChange={e => setDraftFilters(prev => ({ ...prev, designation: e.target.value }))}
+                                            onFocus={() => setDesignationFocused(true)}
+                                            onBlur={() => setTimeout(() => setDesignationFocused(false), 200)}
+                                            placeholder="Designation..."
+                                            className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all w-full"
+                                        />
+                                        {designationFocused && availableDesignations.length > 0 && (
+                                            <div className="absolute z-50 mt-12 w-full max-h-40 overflow-y-auto rounded-xl border border-white/10 bg-[#1B1B19] shadow-2xl py-1">
+                                                {availableDesignations
+                                                    .filter(d => !draftFilters.designation || d.toLowerCase().includes(draftFilters.designation.toLowerCase()))
+                                                    .map(d => (
+                                                        <button key={d} type="button" onMouseDown={() => setDraftFilters(prev => ({ ...prev, designation: d }))} className="w-full px-3 py-1.5 text-left text-xs hover:bg-indigo-600 transition-colors font-medium text-slate-200">{d}</button>
+                                                    ))}
+                                            </div>
+                                        )}
                                     </div>
-                                )}
-                            </div>
+                                </div>
 
-                            {/* Model with suggestions */}
-                            <div className="flex flex-col gap-1 relative">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Model</label>
-                                <input
-                                    value={draftFilters.model}
-                                    onChange={e => setDraftFilters(prev => ({ ...prev, model: e.target.value }))}
-                                    onFocus={() => setModelFocused(true)}
-                                    onBlur={() => setTimeout(() => setModelFocused(false), 200)}
-                                    placeholder="Model..."
-                                    className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all w-full"
-                                />
-                                {modelFocused && availableModelNames.length > 0 && (
-                                    <div className="absolute z-50 mt-12 w-full max-h-40 overflow-y-auto rounded-xl border border-white/10 bg-[#1B1B19] shadow-2xl py-1">
-                                        {availableModelNames
-                                            .filter(m => !draftFilters.model || m.toLowerCase().includes(draftFilters.model.toLowerCase()))
-                                            .map(m => (
-                                                <button key={m} type="button" onMouseDown={() => setDraftFilters(prev => ({ ...prev, model: m }))} className="w-full px-3 py-1.5 text-left text-xs hover:bg-indigo-600 transition-colors font-medium text-slate-200">{m}</button>
-                                            ))}
+                                {/* Section 2: Pipeline & Status */}
+                                <div className="space-y-4 pt-4 border-t border-white/10">
+                                    <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-white/5 pb-1.5">Pipeline & Assignment</h4>
+                                    
+                                    {/* Status */}
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Status</label>
+                                        <select value={draftFilters.status} onChange={e => setDraftFilters(prev => ({ ...prev, status: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full cursor-pointer">
+                                            <option value="all" className="bg-[#1B1B19]">Any Status</option>
+                                            <option value="new" className="bg-[#1B1B19]">New</option>
+                                            <option value="contacted" className="bg-[#1B1B19]">Contacted</option>
+                                            <option value="booking_confirmed" className="bg-[#1B1B19]">Booking Confirmed</option>
+                                            <option value="deal_closed" className="bg-[#1B1B19]">Deal Closed</option>
+                                        </select>
                                     </div>
-                                )}
-                            </div>
 
-                            <div className="flex flex-col gap-1">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Fuel</label>
-                                <select value={draftFilters.fuelType} onChange={e => setDraftFilters(prev => ({ ...prev, fuelType: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full">
-                                    <option value="all">Any Fuel</option>
-                                    <option value="petrol">Petrol</option>
-                                    <option value="diesel">Diesel</option>
-                                    <option value="electric">Electric</option>
-                                    <option value="hybrid">Hybrid</option>
-                                    <option value="cng">CNG</option>
-                                </select>
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Year</label>
-                                <input value={draftFilters.year} onChange={e => setDraftFilters(prev => ({ ...prev, year: e.target.value.replace(/\D/g, '') }))} placeholder="YYYY" className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all w-full" />
-                            </div>
+                                    {/* Type */}
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Type</label>
+                                        <select value={draftFilters.leadType} onChange={e => setDraftFilters(prev => ({ ...prev, leadType: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full cursor-pointer">
+                                            <option value="all" className="bg-[#1B1B19]">Any Type</option>
+                                            <option value="hot" className="bg-[#1B1B19]">Hot</option>
+                                            <option value="warm" className="bg-[#1B1B19]">Warm</option>
+                                            <option value="cold" className="bg-[#1B1B19]">Cold</option>
+                                        </select>
+                                    </div>
 
-                            <div className="flex flex-col gap-1">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">KM Driven</label>
-                                <div className="flex items-center gap-1">
-                                    <select value={draftFilters.kmDrivenOp} onChange={e => setDraftFilters(prev => ({ ...prev, kmDrivenOp: e.target.value as 'eq' | 'gt' | 'lt' }))} className="text-[10px] px-1.5 py-1.5 rounded-lg bg-white/10 border border-white/10 text-white font-bold appearance-none">
-                                        <option value="eq">Equal</option><option value="gt">Above</option><option value="lt">Below</option>
-                                    </select>
-                                    <input value={draftFilters.kmDriven} onChange={e => setDraftFilters(prev => ({ ...prev, kmDriven: e.target.value.replace(/\D/g, '') }))} placeholder="KM..." className="flex-1 min-w-0 text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 outline-none transition-all" />
+                                    {/* Origin */}
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Origin</label>
+                                        <select value={draftFilters.leadOrigin} onChange={e => setDraftFilters(prev => ({ ...prev, leadOrigin: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full cursor-pointer">
+                                            <option value="all" className="bg-[#1B1B19]">Any Origin</option>
+                                            <option value="whatsapp" className="bg-[#1B1B19]">WhatsApp</option>
+                                            <option value="insta" className="bg-[#1B1B19]">Instagram</option>
+                                            <option value="fb" className="bg-[#1B1B19]">Facebook</option>
+                                            <option value="walk-in" className="bg-[#1B1B19]">Walk-in</option>
+                                            <option value="tele" className="bg-[#1B1B19]">Tele Caller</option>
+                                            <option value="referral" className="bg-[#1B1B19]">Referral</option>
+                                            <option value="web" className="bg-[#1B1B19]">Website</option>
+                                            <option value="olx" className="bg-[#1B1B19]">OLX</option>
+                                            <option value="team-tech" className="bg-[#1B1B19]">Team-Tech</option>
+                                            <option value="other" className="bg-[#1B1B19]">Other</option>
+                                        </select>
+                                    </div>
+
+                                    {/* Owner */}
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Owner</label>
+                                        <select value={draftFilters.assignedTo} onChange={e => setDraftFilters(prev => ({ ...prev, assignedTo: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full cursor-pointer">
+                                            <option value="all" className="bg-[#1B1B19]">Any Owner</option>
+                                            <option value="unassigned" className="bg-[#1B1B19]">Unassigned</option>
+                                            {users.map(u => <option key={u._id} value={u._id} className="bg-[#1B1B19]">{u.username}</option>)}
+                                        </select>
+                                    </div>
+
+                                    {/* Creation Date */}
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Creation Date</label>
+                                        <input type="date" value={draftFilters.date} onChange={e => setDraftFilters(prev => ({ ...prev, date: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium color-scheme-dark w-full" title="Filter by creation date" />
+                                    </div>
+
+                                    {/* Tags */}
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Tags</label>
+                                        <TagInput
+                                            selectedTags={draftFilters.tags}
+                                            onTagsChange={tags => setDraftFilters(prev => ({ ...prev, tags }))}
+                                            availableTags={availableTags}
+                                            placeholder="Select tags..."
+                                            isDark={true}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Section 3: Financials & Vehicle Details */}
+                                <div className="space-y-4 pt-4 border-t border-white/10">
+                                    <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-white/5 pb-1.5">Vehicle & Budget</h4>
+                                    
+                                    {/* Payment */}
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Payment</label>
+                                        <select value={draftFilters.paymentStatus} onChange={e => setDraftFilters(prev => ({ ...prev, paymentStatus: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full cursor-pointer">
+                                            <option value="all" className="bg-[#1B1B19]">Any Payment</option>
+                                            <option value="" className="bg-[#1B1B19]">None</option>
+                                            <option value="advance payment" className="bg-[#1B1B19]">Advance</option>
+                                            <option value="full payment" className="bg-[#1B1B19]">Full</option>
+                                        </select>
+                                    </div>
+
+                                    {/* Method */}
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Method</label>
+                                        <select value={draftFilters.bookMethod} onChange={e => setDraftFilters(prev => ({ ...prev, bookMethod: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full cursor-pointer">
+                                            <option value="all" className="bg-[#1B1B19]">Any Method</option>
+                                            <option value="" className="bg-[#1B1B19]">None</option>
+                                            <option value="loan" className="bg-[#1B1B19]">Loan</option>
+                                            <option value="cash" className="bg-[#1B1B19]">Cash</option>
+                                        </select>
+                                    </div>
+
+                                    {/* Intent */}
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Intent</label>
+                                        <select value={draftFilters.intent} onChange={e => setDraftFilters(prev => ({ ...prev, intent: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full cursor-pointer">
+                                            <option value="all" className="bg-[#1B1B19]">Any Intent</option>
+                                            <option value="buying" className="bg-[#1B1B19]">Buying</option>
+                                            <option value="selling" className="bg-[#1B1B19]">Selling</option>
+                                            <option value="exchange" className="bg-[#1B1B19]">Exchange</option>
+                                        </select>
+                                    </div>
+
+                                    {/* Brand */}
+                                    <div className="flex flex-col gap-1 relative">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Brand</label>
+                                        <input
+                                            value={draftFilters.brand}
+                                            onChange={e => setDraftFilters(prev => ({ ...prev, brand: e.target.value }))}
+                                            onFocus={() => setBrandFocused(true)}
+                                            onBlur={() => setTimeout(() => setBrandFocused(false), 200)}
+                                            placeholder="Brand..."
+                                            className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all w-full"
+                                        />
+                                        {brandFocused && availableBrandNames.length > 0 && (
+                                            <div className="absolute z-50 mt-12 w-full max-h-40 overflow-y-auto rounded-xl border border-white/10 bg-[#1B1B19] shadow-2xl py-1">
+                                                {availableBrandNames
+                                                    .filter(b => !draftFilters.brand || b.toLowerCase().includes(draftFilters.brand.toLowerCase()))
+                                                    .map(b => (
+                                                        <button key={b} type="button" onMouseDown={() => setDraftFilters(prev => ({ ...prev, brand: b }))} className="w-full px-3 py-1.5 text-left text-xs hover:bg-indigo-600 transition-colors font-medium text-slate-200">{b}</button>
+                                                    ))}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Model */}
+                                    <div className="flex flex-col gap-1 relative">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Model</label>
+                                        <input
+                                            value={draftFilters.model}
+                                            onChange={e => setDraftFilters(prev => ({ ...prev, model: e.target.value }))}
+                                            onFocus={() => setModelFocused(true)}
+                                            onBlur={() => setTimeout(() => setModelFocused(false), 200)}
+                                            placeholder="Model..."
+                                            className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all w-full"
+                                        />
+                                        {modelFocused && availableModelNames.length > 0 && (
+                                            <div className="absolute z-50 mt-12 w-full max-h-40 overflow-y-auto rounded-xl border border-white/10 bg-[#1B1B19] shadow-2xl py-1">
+                                                {availableModelNames
+                                                    .filter(m => !draftFilters.model || m.toLowerCase().includes(draftFilters.model.toLowerCase()))
+                                                    .map(m => (
+                                                        <button key={m} type="button" onMouseDown={() => setDraftFilters(prev => ({ ...prev, model: m }))} className="w-full px-3 py-1.5 text-left text-xs hover:bg-indigo-600 transition-colors font-medium text-slate-200">{m}</button>
+                                                    ))}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Fuel */}
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Fuel</label>
+                                        <select value={draftFilters.fuelType} onChange={e => setDraftFilters(prev => ({ ...prev, fuelType: e.target.value }))} className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium appearance-none w-full cursor-pointer">
+                                            <option value="all" className="bg-[#1B1B19]">Any Fuel</option>
+                                            <option value="petrol" className="bg-[#1B1B19]">Petrol</option>
+                                            <option value="diesel" className="bg-[#1B1B19]">Diesel</option>
+                                            <option value="electric" className="bg-[#1B1B19]">Electric</option>
+                                            <option value="hybrid" className="bg-[#1B1B19]">Hybrid</option>
+                                            <option value="cng" className="bg-[#1B1B19]">CNG</option>
+                                        </select>
+                                    </div>
+
+                                    {/* Year */}
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Year</label>
+                                        <input value={draftFilters.year} onChange={e => setDraftFilters(prev => ({ ...prev, year: e.target.value.replace(/\D/g, '') }))} placeholder="YYYY" className="text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all w-full" />
+                                    </div>
+
+                                    {/* KM Driven */}
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">KM Driven</label>
+                                        <div className="flex items-center gap-1.5">
+                                            <select value={draftFilters.kmDrivenOp} onChange={e => setDraftFilters(prev => ({ ...prev, kmDrivenOp: e.target.value as 'eq' | 'gt' | 'lt' }))} className="text-[10px] px-2 py-1.5 rounded-xl bg-white/10 border border-white/10 text-white font-bold appearance-none">
+                                                <option value="eq" className="bg-[#1B1B19]">Equal</option><option value="gt" className="bg-[#1B1B19]">Above</option><option value="lt" className="bg-[#1B1B19]">Below</option>
+                                            </select>
+                                            <input value={draftFilters.kmDriven} onChange={e => setDraftFilters(prev => ({ ...prev, kmDriven: e.target.value.replace(/\D/g, '') }))} placeholder="KM..." className="flex-1 min-w-0 text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 outline-none transition-all" />
+                                        </div>
+                                    </div>
+
+                                    {/* Budget */}
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Budget</label>
+                                        <div className="flex items-center gap-1.5">
+                                            <select value={draftFilters.amountOp} onChange={e => setDraftFilters(prev => ({ ...prev, amountOp: e.target.value as 'eq' | 'gt' | 'lt' }))} className="text-[10px] px-2 py-1.5 rounded-xl bg-white/10 border border-white/10 text-white font-bold appearance-none">
+                                                <option value="eq" className="bg-[#1B1B19]">Equal</option><option value="gt" className="bg-[#1B1B19]">Above</option><option value="lt" className="bg-[#1B1B19]">Below</option>
+                                            </select>
+                                            <input value={draftFilters.amount} onChange={e => setDraftFilters(prev => ({ ...prev, amount: e.target.value.replace(/\D/g, '') }))} placeholder="Price..." className="flex-1 min-w-0 text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 outline-none transition-all" />
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div className="flex flex-col gap-1">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest ml-1">Budget</label>
-                                <div className="flex items-center gap-1">
-                                    <select value={draftFilters.amountOp} onChange={e => setDraftFilters(prev => ({ ...prev, amountOp: e.target.value as 'eq' | 'gt' | 'lt' }))} className="text-[10px] px-1.5 py-1.5 rounded-lg bg-white/10 border border-white/10 text-white font-bold appearance-none">
-                                        <option value="eq">Equal</option><option value="gt">Above</option><option value="lt">Below</option>
-                                    </select>
-                                    <input value={draftFilters.amount} onChange={e => setDraftFilters(prev => ({ ...prev, amount: e.target.value.replace(/\D/g, '') }))} placeholder="Price..." className="flex-1 min-w-0 text-xs px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white focus:border-indigo-500 outline-none transition-all" />
-                                </div>
+                            {/* Sticky Drawer Footer */}
+                            <div className="p-4 border-t border-white/10 bg-white/5 backdrop-blur-md shrink-0 flex gap-3">
+                                <button
+                                    onClick={handleResetFilters}
+                                    className="flex-1 py-2.5 text-xs font-bold text-red-100 hover:text-white bg-red-500/10 hover:bg-red-500 border border-red-500/20 rounded-xl transition-all uppercase tracking-widest flex items-center justify-center gap-2 cursor-pointer"
+                                >
+                                    <X size={14} /> Reset
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        handleApplyFilters();
+                                        setShowAdvancedFilters(false); // Close sidebar on apply
+                                    }}
+                                    className="flex-1 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl transition-all uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20 cursor-pointer"
+                                >
+                                    <Filter size={14} /> Apply
+                                </button>
                             </div>
 
-                            {/* Filler to keep alignment if needed, or just let it wrap */}
-                            <div className="hidden lg:block"></div>
-                        </div>
-
-                        {/* ROW 3: Actions (New full-width row) */}
-                        <div className="flex flex-col sm:flex-row items-center justify-end gap-3 border-t border-white/10 pt-4 mt-1">
-                            <button
-                                onClick={handleResetFilters}
-                                className="w-full sm:w-auto px-6 py-2 text-xs font-bold text-red-100 hover:text-white bg-red-500/10 hover:bg-red-500 border border-red-500/20 rounded-xl transition-all uppercase tracking-widest flex items-center justify-center gap-2"
-                            >
-                                <X size={14} /> Reset Filters
-                            </button>
-                            <button
-                                onClick={handleApplyFilters}
-                                className="w-full sm:w-auto px-8 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl transition-all uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20"
-                            >
-                                <Filter size={14} /> Apply Filter
-                            </button>
                         </div>
                     </div>
                 )}
             </div>
 
-            {/* Table Layout */}
             {currentMode === 'apileads' ? (
                 <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-start bg-gray-50/30 overflow-y-auto max-h-[calc(100vh-350px)]">
-                    {paginatedLeads.map(lead => {
-                        const isEditing = editingApiLeadId === lead._id;
-                        const isExisting = lead.existingInCrm === true;
-                        return (
-                            <div key={lead._id} className={`bg-white rounded-xl border shadow-sm p-5 hover:shadow-md transition-shadow flex flex-col gap-4 h-fit relative ${isEditing ? 'border-indigo-300 ring-2 ring-indigo-100' : isExisting ? 'border-amber-200 ring-1 ring-amber-50' : 'border-gray-200'}`}>
-                                <div className="absolute top-4 right-4 flex items-center gap-3">
-                                    <span className="text-[10px] font-bold text-gray-300">#{(currentPage - 1) * pageSize + paginatedLeads.indexOf(lead) + 1}</span>
-                                    {!isEditing && (
-                                        <button onClick={() => startEditApiLead(lead)} className="p-1 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-all" title="Edit">
-                                            <Edit3 size={14} />
-                                        </button>
-                                    )}
-                                    <input
-                                        type="checkbox"
-                                        checked={selectedIds.includes(lead._id!)}
-                                        onChange={e => handleSelectLead(lead._id!, e.target.checked)}
-                                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                    />
-                                </div>
-
-                                {/* Existing in CRM badge */}
-                                {isExisting && !isEditing && (
-                                    <div className="absolute top-4 left-4 flex items-center gap-1 px-2 py-0.5 bg-amber-50 border border-amber-200 rounded-full">
-                                        <AlertTriangle size={10} className="text-amber-500" />
-                                        <span className="text-[10px] font-bold text-amber-600">Existing Lead</span>
-                                    </div>
-                                )}
-
-                                {isEditing ? (
-                                    /* ─── EDIT MODE ─── */
-                                    <div className="flex flex-col gap-3 pr-8">
-                                        <div className="flex flex-col gap-1.5">
-                                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Name</label>
-                                            <input value={editData.name} onChange={e => setEditData(d => ({ ...d, name: e.target.value }))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-bold focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all" />
-                                        </div>
-                                        <div className="flex flex-col gap-1.5">
-                                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Phone</label>
-                                            <div className="flex gap-2">
-                                                <select
-                                                    value={parsePhoneNumber(editData.phone || '').countryCode}
-                                                    onChange={(e) => {
-                                                        const { localNumber } = parsePhoneNumber(editData.phone || '');
-                                                        setEditData(d => ({ ...d, phone: `${e.target.value}${localNumber}` }));
-                                                    }}
-                                                    className="w-24 rounded-lg border border-gray-200 px-2 py-2 text-xs focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
-                                                >
-                                                    <option value="">Select</option>
-                                                    {COUNTRIES.map(c => (
-                                                        <option key={`${c.iso}-${c.code}`} value={c.code}>
-                                                            {c.flag} {c.code}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                                <input
-                                                    value={parsePhoneNumber(editData.phone || '').localNumber}
-                                                    onChange={(e) => {
-                                                        const val = e.target.value.replace(/\D/g, '');
-                                                        const { countryCode } = parsePhoneNumber(editData.phone || '');
-                                                        setEditData(d => ({ ...d, phone: `${countryCode}${val}` }));
-                                                    }}
-                                                    className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
-                                                    placeholder="Number"
-                                                />
-                                            </div>
-                                        </div>
-
-                                        {/* Place with suggestions */}
-                                        <div className="flex flex-col gap-1.5 relative">
-                                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Place</label>
-                                            <input value={editData.place} onChange={e => setEditData(d => ({ ...d, place: e.target.value }))} onFocus={() => setEditFocus('place')} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all" />
-                                            {editFocus === 'place' && availablePlaces.filter(p => !editData.place || p.toLowerCase().includes(editData.place.toLowerCase())).length > 0 && (
-                                                <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-32 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                                                    {availablePlaces.filter(p => !editData.place || p.toLowerCase().includes(editData.place.toLowerCase())).map(p => (
-                                                        <button key={p} type="button" onMouseDown={() => setEditData(d => ({ ...d, place: p }))} className="w-full px-3 py-1.5 text-left text-sm hover:bg-indigo-50 transition-colors">{p}</button>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        {/* Designation with suggestions */}
-                                        <div className="flex flex-col gap-1.5 relative">
-                                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Designation</label>
-                                            <input value={editData.designation} onChange={e => setEditData(d => ({ ...d, designation: e.target.value }))} onFocus={() => setEditFocus('designation')} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all" />
-                                            {editFocus === 'designation' && availableDesignations.filter(d => !editData.designation || d.toLowerCase().includes(editData.designation.toLowerCase())).length > 0 && (
-                                                <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-32 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                                                    {availableDesignations.filter(d => !editData.designation || d.toLowerCase().includes(editData.designation.toLowerCase())).map(d => (
-                                                        <button key={d} type="button" onMouseDown={() => setEditData(dd => ({ ...dd, designation: d }))} className="w-full px-3 py-1.5 text-left text-sm hover:bg-indigo-50 transition-colors">{d}</button>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        {/* Lead Origin */}
-                                        <div className="flex flex-col gap-1.5">
-                                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Source</label>
-                                            <select value={editData.leadOrigin} onChange={e => setEditData(d => ({ ...d, leadOrigin: e.target.value }))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all">
-                                                <option value="">Select Origin</option>
-                                                <option value="whatsapp">WhatsApp</option><option value="insta">Instagram</option><option value="fb">Facebook</option>
-                                                <option value="walk-in">Walk-in</option><option value="tele">Tele Caller</option><option value="referral">Referral</option>
-                                                <option value="web">Website</option><option value="olx">OLX</option>
-                                                <option value="team-tech">Team-Tech</option>
-                                                <option value="other">Other</option>
-                                            </select>
-                                        </div>
-
-                                        {/* Assign User */}
-                                        <div className="flex flex-col gap-1.5">
-                                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><UserIcon size={10} /> Assign To</label>
-                                            <select value={editData.assignedTo} onChange={e => setEditData(d => ({ ...d, assignedTo: e.target.value }))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all">
-                                                <option value="">Unassigned</option>
-                                                {users.map(u => <option key={u._id} value={u._id}>{u.username}</option>)}
-                                            </select>
-                                        </div>
-
-                                        {/* Vehicle Details */}
-                                        {(editData.carDetails?.length ?? 0) > 0 && (
-                                            <div className="flex flex-col gap-2 mt-1">
-                                                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><Car size={10} /> Vehicles</span>
-                                                {(editData.carDetails ?? []).map((car: CarDetail, idx: number) => (
-                                                    <div key={idx} className="p-3 rounded-lg border border-indigo-100 bg-indigo-50/20 flex flex-col gap-2">
-                                                        <select value={car.intent} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], intent: e.target.value as 'buying' | 'selling' | 'exchange' }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs">
-                                                            <option value="buying">Buying</option><option value="selling">Selling</option><option value="exchange">Exchange</option>
-                                                        </select>
-                                                        {car.intent !== 'selling' && (
-                                                            <div className="flex flex-col gap-1">
-                                                                <span className="text-[9px] font-bold text-gray-400 uppercase">Wanted Car</span>
-                                                                <div className="flex gap-1.5 relative">
-                                                                    <div className="flex-1 relative">
-                                                                        <input placeholder="Brand" value={car.wantedCar?.brandName || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], wantedCar: { ...(cd[idx].wantedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), brandName: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`wb${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
-                                                                        {editFocus === `wb${idx}` && availableBrandNames.filter(b => !car.wantedCar?.brandName || b.toLowerCase().includes((car.wantedCar?.brandName || '').toLowerCase())).length > 0 && (
-                                                                            <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                                                                                {availableBrandNames.filter(b => !car.wantedCar?.brandName || b.toLowerCase().includes((car.wantedCar?.brandName || '').toLowerCase())).map(b => (
-                                                                                    <button key={b} type="button" onMouseDown={() => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], wantedCar: { ...(cd[idx].wantedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), brandName: b } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{b}</button>
-                                                                                ))}
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                    <div className="flex-1 relative">
-                                                                        <input placeholder="Model" value={car.wantedCar?.modelName || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], wantedCar: { ...(cd[idx].wantedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), modelName: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`wm${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
-                                                                        {editFocus === `wm${idx}` && availableModelNames.filter(m => !car.wantedCar?.modelName || m.toLowerCase().includes((car.wantedCar?.modelName || '').toLowerCase())).length > 0 && (
-                                                                            <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                                                                                {availableModelNames.filter(m => !car.wantedCar?.modelName || m.toLowerCase().includes((car.wantedCar?.modelName || '').toLowerCase())).map(m => (
-                                                                                    <button key={m} type="button" onMouseDown={() => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], wantedCar: { ...(cd[idx].wantedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), modelName: m } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{m}</button>
-                                                                                ))}
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        )}
-                                                        {car.intent !== 'buying' && (
-                                                            <div className="flex flex-col gap-1">
-                                                                <span className="text-[9px] font-bold text-gray-400 uppercase">Owned Car</span>
-                                                                <div className="flex gap-1.5 relative">
-                                                                    <div className="flex-1 relative">
-                                                                        <input placeholder="Brand" value={car.ownedCar?.brandName || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), brandName: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`ob${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
-                                                                        {editFocus === `ob${idx}` && availableBrandNames.filter(b => !car.ownedCar?.brandName || b.toLowerCase().includes((car.ownedCar?.brandName || '').toLowerCase())).length > 0 && (
-                                                                            <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                                                                                {availableBrandNames.filter(b => !car.ownedCar?.brandName || b.toLowerCase().includes((car.ownedCar?.brandName || '').toLowerCase())).map(b => (
-                                                                                    <button key={b} type="button" onMouseDown={() => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), brandName: b } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{b}</button>
-                                                                                ))}
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                    <div className="flex-1 relative">
-                                                                        <input placeholder="Model" value={car.ownedCar?.modelName || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), modelName: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`om${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
-                                                                        {editFocus === `om${idx}` && availableModelNames.filter(m => !car.ownedCar?.modelName || m.toLowerCase().includes((car.ownedCar?.modelName || '').toLowerCase())).length > 0 && (
-                                                                            <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                                                                                {availableModelNames.filter(m => !car.ownedCar?.modelName || m.toLowerCase().includes((car.ownedCar?.modelName || '').toLowerCase())).map(m => (
-                                                                                    <button key={m} type="button" onMouseDown={() => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), modelName: m } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{m}</button>
-                                                                                ))}
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                                <div className="flex gap-1.5">
-                                                                    <input placeholder="Year" value={car.ownedCar?.year || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), year: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="flex-1 rounded-md border border-gray-200 px-2 py-1 text-xs" />
-                                                                    <input placeholder="KM" value={car.ownedCar?.kmDriven || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), kmDriven: e.target.value } }; setEditData(d => ({ ...d, carDetails: cd })); }} className="flex-1 rounded-md border border-gray-200 px-2 py-1 text-xs" />
-                                                                </div>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-
-                                        {/* Save / Cancel */}
-                                        <div className="flex gap-2 mt-2">
-                                            <button onClick={cancelEditApiLead} className="flex-1 px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-200 transition-all">Cancel</button>
-                                            <button onClick={saveEditApiLead} className="flex-1 px-3 py-2 bg-[#1B1B19] text-white rounded-lg text-xs font-bold hover:bg-black transition-all flex items-center justify-center gap-1.5 shadow-sm"><Save size={14} /> Save</button>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    /* ─── VIEW MODE ─── */
-                                    <>
-                                        <div className={`flex flex-col gap-1 pr-8 ${isExisting ? 'mt-6' : ''}`}>
-                                            <button
-                                                onClick={() => navigate(`/contact/${lead._id}`)}
-                                                className="font-bold text-lg text-gray-900 hover:text-indigo-600 text-left leading-tight"
-                                            >
-                                                {lead.name}
-                                            </button>
-                                            <a href={`tel:${lead.phone}`} className="text-sm text-indigo-600 font-medium flex items-center gap-1.5 hover:underline w-fit">
-                                                <Phone size={14} /> {lead.phone}
-                                            </a>
-                                        </div>
-
-                                        {(lead.place || lead.designation || lead.leadOrigin) && (
-                                            <div className="flex flex-col gap-2 p-3 bg-gray-50 rounded-lg text-xs">
-                                                {lead.place && <div className="flex items-center justify-between"><span className="text-gray-500">Place</span><span className="font-bold text-gray-700">{lead.place}</span></div>}
-                                                {lead.designation && <div className="flex items-center justify-between"><span className="text-gray-500">Designation</span><span className="font-bold text-gray-700">{lead.designation}</span></div>}
-                                                {lead.leadOrigin && <div className="flex items-center justify-between"><span className="text-gray-500">Source</span><span className="font-bold text-gray-700">{lead.leadOrigin}</span></div>}
-                                            </div>
-                                        )}
-
-                                        {/* Assigned User Display */}
-                                        {lead.assignedTo && (
-                                            <div className="flex items-center gap-2 text-xs">
-                                                <div className="h-5 w-5 rounded-full bg-indigo-100 flex items-center justify-center text-[9px] font-bold text-indigo-600">
-                                                    {typeof lead.assignedTo === 'object' ? lead.assignedTo?.username?.charAt(0) : '?'}
-                                                </div>
-                                                <span className="font-medium text-gray-600">
-                                                    {typeof lead.assignedTo === 'object' ? lead.assignedTo?.username : 'Assigned'}
-                                                </span>
-                                            </div>
-                                        )}
-
-                                        {lead.carDetails && lead.carDetails.length > 0 && (
-                                            <div className="flex flex-col gap-2">
-                                                <span className="text-[10px] font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1"><Car size={12} /> Vehicles ({lead.carDetails.length})</span>
-                                                {lead.carDetails.map((car, idx) => (
-                                                    <div key={idx} className="text-xs p-2.5 rounded-lg border border-indigo-50 bg-indigo-50/30 flex flex-col gap-1">
-                                                        <span className="font-bold text-indigo-900 capitalize">{car.intent}</span>
-                                                        {car.wantedCar && car.intent !== 'selling' && (
-                                                            <div className="text-gray-600">Want: <span className="font-medium text-gray-900 truncate block">{car.wantedCar.brandName} {car.wantedCar.modelName}</span></div>
-                                                        )}
-                                                        {car.ownedCar && car.intent !== 'buying' && (
-                                                            <div className="text-gray-600">
-                                                                Own: <span className="font-medium text-gray-900 truncate block">{car.ownedCar.brandName} {car.ownedCar.modelName}</span>
-                                                                {(car.ownedCar.year || car.ownedCar.kmDriven) && (
-                                                                    <div className="flex gap-2 text-[10px] mt-1 text-gray-500 font-medium">
-                                                                        {car.ownedCar.year && <span className="bg-white px-1.5 py-0.5 rounded border border-gray-100">{car.ownedCar.year}</span>}
-                                                                        {car.ownedCar.kmDriven && <span className="bg-white px-1.5 py-0.5 rounded border border-gray-100">{car.ownedCar.kmDriven} km</span>}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-
-                                        {lead.notes && lead.notes.length > 0 && (
-                                            <div className="flex flex-col gap-1.5">
-                                                <span className="text-[10px] font-bold text-gray-700 uppercase tracking-wider">Latest Note</span>
-                                                <div className="text-xs text-gray-700 bg-yellow-50/50 p-2.5 rounded-lg border border-yellow-100 italic line-clamp-3">
-                                                    {lead.notes[lead.notes.length - 1]}
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        <div className="mt-auto pt-4 border-t border-gray-100 flex items-center gap-2">
-                                            {isExisting && (
-                                                <div className="w-full mb-2 px-2.5 py-1.5 bg-amber-50 border border-amber-100 rounded-lg text-[10px] text-amber-700 font-medium leading-snug">
-                                                    New car details &amp; notes will be merged into the existing contact.
-                                                </div>
-                                            )}
-                                            <div className="flex items-center gap-2 w-full">
-                                                <button
-                                                    onClick={() => startEditApiLead(lead)}
-                                                    className="px-3 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100 transition-all font-bold text-xs flex items-center gap-1.5 border border-gray-200"
-                                                >
-                                                    <Edit3 size={14} /> Edit
-                                                </button>
-                                                <button
-                                                    onClick={() => {
-                                                        if (window.confirm('Delete this pending lead?')) {
-                                                            deleteApiLead(lead._id!);
-                                                        }
-                                                    }}
-                                                    className="px-3 py-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 transition-all font-bold text-xs"
-                                                >
-                                                    Delete
-                                                </button>
-                                                <button
-                                                    onClick={() => {
-                                                        const msg = isExisting
-                                                            ? 'This contact already exists in CRM. New car details and notes will be merged into them. Continue?'
-                                                            : 'Approve this lead and add to CRM?';
-                                                        if (window.confirm(msg)) {
-                                                            approveApiLead(lead._id!);
-                                                        }
-                                                    }}
-                                                    className={`flex-1 px-3 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-sm ${isExisting
-                                                            ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
-                                                            : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-100'
-                                                        }`}
-                                                >
-                                                    {isExisting ? (
-                                                        <><AlertTriangle size={14} /> Update in CRM</>
-                                                    ) : (
-                                                        <><CheckCircle2 size={16} /> Add to CRM</>
-                                                    )}
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-                        );
-                    })}
+                    {paginatedLeads.map((lead, idx) => (
+                        <ApiLeadCard
+                            key={lead._id}
+                            lead={lead}
+                            index={(currentPage - 1) * pageSize + idx + 1}
+                            isEditing={editingApiLeadId === lead._id}
+                            editData={editData}
+                            editFocus={editFocus}
+                            setEditData={setEditData}
+                            setEditFocus={setEditFocus}
+                            availablePlaces={availablePlaces}
+                            availableDesignations={availableDesignations}
+                            availableBrandNames={availableBrandNames}
+                            availableModelNames={availableModelNames}
+                            users={users}
+                            onStartEdit={startEditApiLead}
+                            onCancelEdit={cancelEditApiLead}
+                            onSaveEdit={saveEditApiLead}
+                            onDelete={() => {
+                                if (window.confirm('Delete this pending lead?')) {
+                                    deleteApiLead(lead._id!);
+                                }
+                            }}
+                            onApprove={() => {
+                                const isExisting = lead.existingInCrm === true;
+                                const msg = isExisting
+                                    ? 'This contact already exists in CRM. New car details and notes will be merged into them. Continue?'
+                                    : 'Approve this lead and add to CRM?';
+                                if (window.confirm(msg)) {
+                                    approveApiLead(lead._id!);
+                                }
+                            }}
+                            selected={selectedIds.includes(lead._id!)}
+                            onSelect={(checked: boolean) => handleSelectLead(lead._id!, checked)}
+                            onNavigate={(id: string) => navigate(`/contact/${id}`)}
+                        />
+                    ))}
                 </div>
             ) : (
                 <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-350px)]">
                     {/* Mobile Card View */}
                     <div className="md:hidden flex flex-col gap-4 p-4 bg-gray-50/30">
                         {paginatedLeads.map(lead => (
-                            <div key={lead._id} className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm flex flex-col gap-3">
-                                <div className="flex justify-between items-start">
-                                    <div className="flex flex-col">
-                                        <button
-                                            onClick={() => navigate(`/contact/${lead._id}`)}
-                                            className="font-bold text-base text-gray-900 hover:text-indigo-600 text-left"
-                                        >
-                                            {lead.name}
-                                        </button>
-                                        <span className="text-xs text-gray-500">{lead.place || 'No Place'}</span>
-                                    </div>
-                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${lead.leadType === 'hot' ? 'bg-orange-50 text-orange-600 border border-orange-100' :
-                                        lead.leadType === 'warm' ? 'bg-yellow-50 text-yellow-600 border border-yellow-100' :
-                                            'bg-blue-50 text-blue-600 border border-blue-100'
-                                        }`}>
-                                        {lead.leadType}
-                                    </span>
-                                </div>
-
-                                <div className="flex flex-col gap-1.5 text-xs text-gray-600">
-                                    <div className="flex items-center gap-2">
-                                        <Briefcase size={12} className="text-gray-400" />
-                                        <span>{lead.designation || 'No Designation'}</span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <Calendar size={12} className="text-gray-400" />
-                                        <span>{lead.createdAt ? format(parseISO(lead.createdAt), 'MMM d, yyyy') : 'N/A'}</span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <UserIcon size={12} className="text-gray-400" />
-                                        <span>{typeof lead.assignedTo === 'object' ? lead.assignedTo?.username : 'Unassigned'}</span>
-                                    </div>
-                                </div>
-
-                                <div className="flex flex-wrap gap-1">
-                                    {lead.tags.map((tag, i) => (
-                                        <span key={i} className="px-1.5 py-0.5 bg-gray-50 text-gray-500 border border-gray-100 rounded text-[9px] font-medium">
-                                            {typeof tag === 'string' ? tag : tag.name}
-                                        </span>
-                                    ))}
-                                </div>
-
-                                <div className="flex items-center justify-between border-t border-gray-50 pt-3 mt-1">
-                                    <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${lead.status === 'booking_confirmed' || lead.status === 'deal_closed' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
-                                        'bg-gray-100 text-gray-600 border border-gray-200'
-                                        }`}>
-                                        {lead.status.replace('_', ' ')}
-                                    </span>
-                                    <div className="flex gap-2">
-                                        <a
-                                            href={`tel:${lead.phone}`}
-                                            onClick={(e) => e.stopPropagation()}
-                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-sm"
-                                        >
-                                            <Phone size={12} /> Call
-                                        </a>
-                                        <button
-                                            onClick={() => navigate(`/contact/${lead._id}`)}
-                                            className="px-3 py-1.5 bg-[#1B1B19] text-white rounded-lg text-[10px] font-bold uppercase tracking-wider"
-                                        >
-                                            View
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
+                            <LeadMobileCard
+                                key={lead._id}
+                                lead={lead}
+                                onNavigate={(id: string) => navigate(`/contact/${id}`)}
+                            />
                         ))}
                     </div>
 
@@ -1802,75 +1280,15 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50">
-                            {paginatedLeads.map(lead => (
-                                <tr key={lead._id} className="hover:bg-indigo-50/30 transition-all group">
-                                    <td className="p-4">
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedIds.includes(lead._id!)}
-                                            onChange={e => handleSelectLead(lead._id!, e.target.checked)}
-                                            className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                                        />
-                                    </td>
-                                    <td className="p-4 text-[10px] font-bold text-gray-300">
-                                        {(currentPage - 1) * pageSize + paginatedLeads.indexOf(lead) + 1}
-                                    </td>
-                                    <td className="p-4">
-                                        <div className="flex flex-col">
-                                            <button
-                                                onClick={() => navigate(`/contact/${lead._id}`)}
-                                                className="font-bold text-sm text-gray-900 hover:text-indigo-600 text-left"
-                                            >
-                                                {lead.name}
-                                            </button>
-                                            <span className="text-[10px] text-gray-700">
-                                                {lead.place || 'None'}
-                                            </span>
-                                            <div className="flex items-center gap-1 text-[11px] text-gray-700 mt-0.5">
-                                                <Briefcase size={10} />
-                                                <span>{lead.designation || 'None'}</span>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td className="p-4 text-sm text-gray-600">{lead.phone}</td>
-                                    <td className="p-4">
-                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${lead.leadType === 'hot' ? 'bg-orange-50 text-orange-600 border border-orange-100' :
-                                            lead.leadType === 'warm' ? 'bg-yellow-50 text-yellow-600 border border-yellow-100' :
-                                                'bg-blue-50 text-blue-600 border border-blue-100'
-                                            }`}>
-                                            {lead.leadType}
-                                        </span>
-                                    </td>
-                                    <td className="p-4">
-                                        <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${lead.status === 'booking_confirmed' || lead.status === 'deal_closed' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
-                                            'bg-gray-100 text-gray-600 border border-gray-200'
-                                            }`}>
-                                            {lead.status.replace('_', ' ')}
-                                        </span>
-                                    </td>
-                                    <td className="p-4">
-                                        <div className="flex items-center gap-2">
-                                            <div className="h-6 w-6 rounded-full bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-500">
-                                                {typeof lead.assignedTo === 'object' ? lead.assignedTo?.username?.charAt(0) : '?'}
-                                            </div>
-                                            <span className="text-xs font-medium text-gray-700">
-                                                {typeof lead.assignedTo === 'object' ? lead.assignedTo?.username : 'Unassigned'}
-                                            </span>
-                                        </div>
-                                    </td>
-                                    <td className="p-4">
-                                        <div className="flex flex-wrap gap-1 max-w-[150px]">
-                                            {lead.tags.length > 0 ? lead.tags.map((tag, i) => (
-                                                <span key={i} className="px-1.5 py-0.5 bg-gray-50 text-gray-500 border border-gray-100 rounded text-[9px] font-medium">
-                                                    {typeof tag === 'string' ? tag : tag.name}
-                                                </span>
-                                            )) : <span className="text-[9px] text-gray-300 italic">No tags</span>}
-                                        </div>
-                                    </td>
-                                    <td className="p-4 text-[10px] text-gray-500 whitespace-nowrap">
-                                        {lead.createdAt ? format(parseISO(lead.createdAt), 'MMM d, yyyy') : 'N/A'}
-                                    </td>
-                                </tr>
+                            {paginatedLeads.map((lead, idx) => (
+                                <LeadTableRow
+                                    key={lead._id}
+                                    lead={lead}
+                                    index={(currentPage - 1) * pageSize + idx + 1}
+                                    selected={selectedIds.includes(lead._id!)}
+                                    onSelect={(checked: boolean) => handleSelectLead(lead._id!, checked)}
+                                    onNavigate={(id: string) => navigate(`/contact/${id}`)}
+                                />
                             ))}
                         </tbody>
                     </table>
@@ -1897,7 +1315,17 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                         </div>
                     </div>
                     <span className="text-xs font-bold text-gray-700">
-                        Showing {filteredLeads.length > 0 ? (currentPage - 1) * pageSize + 1 : 0} to {Math.min(currentPage * pageSize, filteredLeads.length)} of {filteredLeads.length}
+                        Showing {
+                            currentMode === 'apileads'
+                                ? (filteredLeads.length > 0 ? (currentPage - 1) * pageSize + 1 : 0)
+                                : (totalLeads > 0 ? (currentPage - 1) * pageSize + 1 : 0)
+                        } to {
+                            currentMode === 'apileads'
+                                ? Math.min(currentPage * pageSize, filteredLeads.length)
+                                : Math.min(currentPage * pageSize, totalLeads)
+                        } of {
+                            currentMode === 'apileads' ? filteredLeads.length : totalLeads
+                        }
                     </span>
                 </div>
 
@@ -1990,3 +1418,416 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
         </div>
     );
 }
+
+const ApiLeadCard = memo(({ lead, index, isEditing, editData, editFocus, setEditData, setEditFocus, availablePlaces, availableDesignations, availableBrandNames, availableModelNames, users, onStartEdit, onCancelEdit, onSaveEdit, onDelete, onApprove, selected, onSelect, onNavigate }: any) => {
+    const isExisting = lead.existingInCrm === true;
+    return (
+        <div className={`bg-white rounded-xl border shadow-sm p-5 hover:shadow-md transition-shadow flex flex-col gap-4 h-fit relative ${isEditing ? 'border-indigo-300 ring-2 ring-indigo-100' : isExisting ? 'border-amber-200 ring-1 ring-amber-50' : 'border-gray-200'}`}>
+            <div className="absolute top-4 right-4 flex items-center gap-3">
+                <span className="text-[10px] font-bold text-gray-300">#{index}</span>
+                {!isEditing && (
+                    <button onClick={() => onStartEdit(lead)} className="p-1 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-all" title="Edit">
+                        <Edit3 size={14} />
+                    </button>
+                )}
+                <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={e => onSelect(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                />
+            </div>
+
+            {isExisting && !isEditing && (
+                <div className="absolute top-4 left-4 flex items-center gap-1 px-2 py-0.5 bg-amber-50 border border-amber-200 rounded-full">
+                    <AlertTriangle size={10} className="text-amber-500" />
+                    <span className="text-[10px] font-bold text-amber-600">Existing Lead</span>
+                </div>
+            )}
+
+            {isEditing ? (
+                <div className="flex flex-col gap-3 pr-8">
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Name</label>
+                        <input value={editData.name} onChange={e => setEditData((d: any) => ({ ...d, name: e.target.value }))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-bold focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all" />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Phone</label>
+                        <div className="flex gap-2">
+                            <select
+                                value={parsePhoneNumber(editData.phone || '').countryCode}
+                                onChange={(e) => {
+                                    const { localNumber } = parsePhoneNumber(editData.phone || '');
+                                    setEditData((d: any) => ({ ...d, phone: `${e.target.value}${localNumber}` }));
+                                }}
+                                className="w-24 rounded-lg border border-gray-200 px-2 py-2 text-xs focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+                            >
+                                <option value="">Select</option>
+                                {COUNTRIES.map(c => (
+                                    <option key={`${c.iso}-${c.code}`} value={c.code}>
+                                        {c.flag} {c.code}
+                                    </option>
+                                ))}
+                            </select>
+                            <input
+                                value={parsePhoneNumber(editData.phone || '').localNumber}
+                                onChange={(e) => {
+                                    const val = e.target.value.replace(/\D/g, '');
+                                    const { countryCode } = parsePhoneNumber(editData.phone || '');
+                                    setEditData((d: any) => ({ ...d, phone: `${countryCode}${val}` }));
+                                }}
+                                className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+                                placeholder="Number"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5 relative">
+                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Place</label>
+                        <input value={editData.place} onChange={e => setEditData((d: any) => ({ ...d, place: e.target.value }))} onFocus={() => setEditFocus('place')} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all" />
+                        {editFocus === 'place' && availablePlaces.filter((p: string) => !editData.place || p.toLowerCase().includes(editData.place.toLowerCase())).length > 0 && (
+                            <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-32 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                                {availablePlaces.filter((p: string) => !editData.place || p.toLowerCase().includes(editData.place.toLowerCase())).map((p: string) => (
+                                    <button key={p} type="button" onMouseDown={() => setEditData((d: any) => ({ ...d, place: p }))} className="w-full px-3 py-1.5 text-left text-sm hover:bg-indigo-50 transition-colors">{p}</button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex flex-col gap-1.5 relative">
+                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Designation</label>
+                        <input value={editData.designation} onChange={e => setEditData((d: any) => ({ ...d, designation: e.target.value }))} onFocus={() => setEditFocus('designation')} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all" />
+                        {editFocus === 'designation' && availableDesignations.filter((d: string) => !editData.designation || d.toLowerCase().includes(editData.designation.toLowerCase())).length > 0 && (
+                            <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-32 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                                {availableDesignations.filter((d: string) => !editData.designation || d.toLowerCase().includes(editData.designation.toLowerCase())).map((d: string) => (
+                                    <button key={d} type="button" onMouseDown={() => setEditData((dd: any) => ({ ...dd, designation: d }))} className="w-full px-3 py-1.5 text-left text-sm hover:bg-indigo-50 transition-colors">{d}</button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Source</label>
+                        <select value={editData.leadOrigin} onChange={e => setEditData((d: any) => ({ ...d, leadOrigin: e.target.value }))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all">
+                            <option value="">Select Origin</option>
+                            <option value="whatsapp">WhatsApp</option><option value="insta">Instagram</option><option value="fb">Facebook</option>
+                            <option value="walk-in">Walk-in</option><option value="tele">Tele Caller</option><option value="referral">Referral</option>
+                            <option value="web">Website</option><option value="olx">OLX</option>
+                            <option value="team-tech">Team-Tech</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><UserIcon size={10} /> Assign To</label>
+                        <select value={editData.assignedTo} onChange={e => setEditData((d: any) => ({ ...d, assignedTo: e.target.value }))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all">
+                            <option value="">Unassigned</option>
+                            {users.map((u: any) => <option key={u._id} value={u._id}>{u.username}</option>)}
+                        </select>
+                    </div>
+
+                    {(editData.carDetails?.length ?? 0) > 0 && (
+                        <div className="flex flex-col gap-2 mt-1">
+                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><Car size={10} /> Vehicles</span>
+                            {(editData.carDetails ?? []).map((car: CarDetail, idx: number) => (
+                                <div key={idx} className="p-3 rounded-lg border border-indigo-100 bg-indigo-50/20 flex flex-col gap-2">
+                                    <select value={car.intent} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], intent: e.target.value as 'buying' | 'selling' | 'exchange' }; setEditData((d: any) => ({ ...d, carDetails: cd })); }} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs">
+                                        <option value="buying">Buying</option><option value="selling">Selling</option><option value="exchange">Exchange</option>
+                                    </select>
+                                    {car.intent !== 'selling' && (
+                                        <div className="flex flex-col gap-1">
+                                            <span className="text-[9px] font-bold text-gray-400 uppercase">Wanted Car</span>
+                                            <div className="flex gap-1.5 relative">
+                                                <div className="flex-1 relative">
+                                                    <input placeholder="Brand" value={car.wantedCar?.brandName || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], wantedCar: { ...(cd[idx].wantedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), brandName: e.target.value } }; setEditData((d: any) => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`wb${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
+                                                    {editFocus === `wb${idx}` && availableBrandNames.filter((b: string) => !car.wantedCar?.brandName || b.toLowerCase().includes((car.wantedCar?.brandName || '').toLowerCase())).length > 0 && (
+                                                        <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                                                            {availableBrandNames.filter((b: string) => !car.wantedCar?.brandName || b.toLowerCase().includes((car.wantedCar?.brandName || '').toLowerCase())).map((b: string) => (
+                                                                <button key={b} type="button" onMouseDown={() => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], wantedCar: { ...(cd[idx].wantedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), brandName: b } }; setEditData((d: any) => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{b}</button>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="flex-1 relative">
+                                                    <input placeholder="Model" value={car.wantedCar?.modelName || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], wantedCar: { ...(cd[idx].wantedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), modelName: e.target.value } }; setEditData((d: any) => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`wm${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
+                                                    {editFocus === `wm${idx}` && availableModelNames.filter((m: string) => !car.wantedCar?.modelName || m.toLowerCase().includes((car.wantedCar?.modelName || '').toLowerCase())).length > 0 && (
+                                                        <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                                                            {availableModelNames.filter((m: string) => !car.wantedCar?.modelName || m.toLowerCase().includes((car.wantedCar?.modelName || '').toLowerCase())).map((m: string) => (
+                                                                <button key={m} type="button" onMouseDown={() => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], wantedCar: { ...(cd[idx].wantedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), modelName: m } }; setEditData((d: any) => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{m}</button>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {car.intent !== 'buying' && (
+                                        <div className="flex flex-col gap-1">
+                                            <span className="text-[9px] font-bold text-gray-400 uppercase">Owned Car</span>
+                                            <div className="flex gap-1.5 relative">
+                                                <div className="flex-1 relative">
+                                                    <input placeholder="Brand" value={car.ownedCar?.brandName || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), brandName: e.target.value } }; setEditData((d: any) => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`ob${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
+                                                    {editFocus === `ob${idx}` && availableBrandNames.filter((b: string) => !car.ownedCar?.brandName || b.toLowerCase().includes((car.ownedCar?.brandName || '').toLowerCase())).length > 0 && (
+                                                        <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                                                            {availableBrandNames.filter((b: string) => !car.ownedCar?.brandName || b.toLowerCase().includes((car.ownedCar?.brandName || '').toLowerCase())).map((b: string) => (
+                                                                <button key={b} type="button" onMouseDown={() => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), brandName: b } }; setEditData((d: any) => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{b}</button>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="flex-1 relative">
+                                                    <input placeholder="Model" value={car.ownedCar?.modelName || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), modelName: e.target.value } }; setEditData((d: any) => ({ ...d, carDetails: cd })); }} onFocus={() => setEditFocus(`om${idx}`)} onBlur={() => setTimeout(() => setEditFocus(null), 150)} className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs" />
+                                                    {editFocus === `om${idx}` && availableModelNames.filter((m: string) => !car.ownedCar?.modelName || m.toLowerCase().includes((car.ownedCar?.modelName || '').toLowerCase())).length > 0 && (
+                                                        <div className="absolute top-full left-0 z-50 mt-1 w-full max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                                                            {availableModelNames.filter((m: string) => !car.ownedCar?.modelName || m.toLowerCase().includes((car.ownedCar?.modelName || '').toLowerCase())).map((m: string) => (
+                                                                <button key={m} type="button" onMouseDown={() => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), modelName: m } }; setEditData((d: any) => ({ ...d, carDetails: cd })); }} className="w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{m}</button>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-1.5">
+                                                <input placeholder="Year" value={car.ownedCar?.year || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), year: e.target.value } }; setEditData((d: any) => ({ ...d, carDetails: cd })); }} className="flex-1 rounded-md border border-gray-200 px-2 py-1 text-xs" />
+                                                <input placeholder="KM" value={car.ownedCar?.kmDriven || ''} onChange={e => { const cd = [...(editData.carDetails ?? [])]; cd[idx] = { ...cd[idx], ownedCar: { ...(cd[idx].ownedCar || { brandName: '', modelName: '', fuelType: '', kmDriven: '' }), kmDriven: e.target.value } }; setEditData((d: any) => ({ ...d, carDetails: cd })); }} className="flex-1 rounded-md border border-gray-200 px-2 py-1 text-xs" />
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <div className="flex gap-2 mt-2">
+                        <button onClick={onCancelEdit} className="flex-1 px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-200 transition-all">Cancel</button>
+                        <button onClick={onSaveEdit} className="flex-1 px-3 py-2 bg-[#1B1B19] text-white rounded-lg text-xs font-bold hover:bg-black transition-all flex items-center justify-center gap-1.5 shadow-sm"><Save size={14} /> Save</button>
+                    </div>
+                </div>
+            ) : (
+                <>
+                    <div className={`flex flex-col gap-1 pr-8 ${isExisting ? 'mt-6' : ''}`}>
+                        <button
+                            onClick={() => onNavigate(lead._id)}
+                            className="font-bold text-lg text-gray-900 hover:text-indigo-600 text-left leading-tight"
+                        >
+                            {lead.name}
+                        </button>
+                        <a href={`tel:${lead.phone}`} className="text-sm text-indigo-600 font-medium flex items-center gap-1.5 hover:underline w-fit">
+                            <Phone size={14} /> {lead.phone}
+                        </a>
+                    </div>
+
+                    {(lead.place || lead.designation || lead.leadOrigin) && (
+                        <div className="flex flex-col gap-2 p-3 bg-gray-50 rounded-lg text-xs">
+                            {lead.place && <div className="flex items-center justify-between"><span className="text-gray-500">Place</span><span className="font-bold text-gray-700">{lead.place}</span></div>}
+                            {lead.designation && <div className="flex items-center justify-between"><span className="text-gray-500">Designation</span><span className="font-bold text-gray-700">{lead.designation}</span></div>}
+                            {lead.leadOrigin && <div className="flex items-center justify-between"><span className="text-gray-500">Source</span><span className="font-bold text-gray-700">{lead.leadOrigin}</span></div>}
+                        </div>
+                    )}
+
+                    {lead.assignedTo && (
+                        <div className="flex items-center gap-2 text-xs">
+                            <div className="h-5 w-5 rounded-full bg-indigo-100 flex items-center justify-center text-[9px] font-bold text-indigo-600">
+                                {typeof lead.assignedTo === 'object' ? lead.assignedTo?.username?.charAt(0) : '?'}
+                            </div>
+                            <span className="font-medium text-gray-600">
+                                {typeof lead.assignedTo === 'object' ? lead.assignedTo?.username : 'Assigned'}
+                            </span>
+                        </div>
+                    )}
+
+                    {lead.carDetails && lead.carDetails.length > 0 && (
+                        <div className="flex flex-col gap-2">
+                            <span className="text-[10px] font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1"><Car size={12} /> Vehicles ({lead.carDetails.length})</span>
+                            {lead.carDetails.map((car: any, idx: number) => (
+                                <div key={idx} className="text-xs p-2.5 rounded-lg border border-indigo-50 bg-indigo-50/30 flex flex-col gap-1">
+                                    <span className="font-bold text-indigo-900 capitalize">{car.intent}</span>
+                                    {car.wantedCar && car.intent !== 'selling' && (
+                                        <div className="text-gray-600">Want: <span className="font-medium text-gray-900 truncate block">{car.wantedCar.brandName} {car.wantedCar.modelName}</span></div>
+                                    )}
+                                    {car.ownedCar && car.intent !== 'buying' && (
+                                        <div className="text-gray-600">
+                                            Own: <span className="font-medium text-gray-900 truncate block">{car.ownedCar.brandName} {car.ownedCar.modelName}</span>
+                                            {(car.ownedCar.year || car.ownedCar.kmDriven) && (
+                                                <div className="flex gap-2 text-[10px] mt-1 text-gray-500 font-medium">
+                                                    {car.ownedCar.year && <span className="bg-white px-1.5 py-0.5 rounded border border-gray-100">{car.ownedCar.year}</span>}
+                                                    {car.ownedCar.kmDriven && <span className="bg-white px-1.5 py-0.5 rounded border border-gray-100">{car.ownedCar.kmDriven} km</span>}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <div className="flex flex-col gap-2 mt-auto pt-3 border-t border-gray-100">
+                        <div className="flex gap-2">
+                            <button
+                                onClick={onDelete}
+                                className="px-3 py-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 transition-all font-bold text-xs"
+                            >
+                                Delete
+                            </button>
+                            <button
+                                onClick={onApprove}
+                                className={`flex-1 px-3 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-sm ${isExisting
+                                        ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
+                                        : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-100'
+                                    }`}
+                            >
+                                {isExisting ? (
+                                    <><AlertTriangle size={14} /> Update in CRM</>
+                                ) : (
+                                    <><CheckCircle2 size={16} /> Add to CRM</>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </>
+            )}
+        </div>
+    );
+});
+
+const LeadMobileCard = memo(({ lead, onNavigate }: any) => {
+    return (
+        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm flex flex-col gap-3">
+            <div className="flex justify-between items-start">
+                <div className="flex flex-col">
+                    <button
+                        onClick={() => onNavigate(lead._id)}
+                        className="font-bold text-base text-gray-900 hover:text-indigo-600 text-left"
+                    >
+                        {lead.name}
+                    </button>
+                    <span className="text-xs text-gray-500">{lead.place || 'No Place'}</span>
+                </div>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${lead.leadType === 'hot' ? 'bg-orange-50 text-orange-600 border border-orange-100' :
+                    lead.leadType === 'warm' ? 'bg-yellow-50 text-yellow-600 border border-yellow-100' :
+                        'bg-blue-50 text-blue-600 border border-blue-100'
+                    }`}>
+                    {lead.leadType}
+                </span>
+            </div>
+
+            <div className="flex flex-col gap-1.5 text-xs text-gray-600">
+                <div className="flex items-center gap-2">
+                    <Briefcase size={12} className="text-gray-400" />
+                    <span>{lead.designation || 'No Designation'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <Calendar size={12} className="text-gray-400" />
+                    <span>{lead.createdAt ? format(parseISO(lead.createdAt), 'MMM d, yyyy') : 'N/A'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <UserIcon size={12} className="text-gray-400" />
+                    <span>{typeof lead.assignedTo === 'object' ? lead.assignedTo?.username : 'Unassigned'}</span>
+                </div>
+            </div>
+
+            <div className="flex flex-wrap gap-1">
+                {lead.tags.map((tag: any, i: number) => (
+                    <span key={i} className="px-1.5 py-0.5 bg-gray-50 text-gray-500 border border-gray-100 rounded text-[9px] font-medium">
+                        {typeof tag === 'string' ? tag : tag.name}
+                    </span>
+                ))}
+            </div>
+
+            <div className="flex items-center justify-between border-t border-gray-50 pt-3 mt-1">
+                <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${lead.status === 'booking_confirmed' || lead.status === 'deal_closed' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                    'bg-gray-100 text-gray-600 border border-gray-200'
+                    }`}>
+                    {lead.status.replace('_', ' ')}
+                </span>
+                <div className="flex gap-2">
+                    <a
+                        href={`tel:${lead.phone}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-sm"
+                    >
+                        <Phone size={12} /> Call
+                    </a>
+                    <button
+                        onClick={() => onNavigate(lead._id)}
+                        className="px-3 py-1.5 bg-[#1B1B19] text-white rounded-lg text-[10px] font-bold uppercase tracking-wider"
+                    >
+                        View
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+});
+
+const LeadTableRow = memo(({ lead, index, selected, onSelect, onNavigate }: any) => {
+    return (
+        <tr className="hover:bg-indigo-50/30 transition-all group">
+            <td className="p-4">
+                <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={e => onSelect(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                />
+            </td>
+            <td className="p-4 text-[10px] font-bold text-gray-300">
+                {index}
+            </td>
+            <td className="p-4">
+                <div className="flex flex-col">
+                    <button
+                        onClick={() => onNavigate(lead._id)}
+                        className="font-bold text-sm text-gray-900 hover:text-indigo-600 text-left"
+                    >
+                        {lead.name}
+                    </button>
+                    <span className="text-[10px] text-gray-700">
+                        {lead.place || 'None'}
+                    </span>
+                    <div className="flex items-center gap-1 text-[11px] text-gray-700 mt-0.5">
+                        <Briefcase size={10} />
+                        <span>{lead.designation || 'None'}</span>
+                    </div>
+                </div>
+            </td>
+            <td className="p-4 text-sm text-gray-600">{lead.phone}</td>
+            <td className="p-4">
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${lead.leadType === 'hot' ? 'bg-orange-50 text-orange-600 border border-orange-100' :
+                    lead.leadType === 'warm' ? 'bg-yellow-50 text-yellow-600 border border-yellow-100' :
+                        'bg-blue-50 text-blue-600 border border-blue-100'
+                    }`}>
+                    {lead.leadType}
+                </span>
+            </td>
+            <td className="p-4">
+                <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${lead.status === 'booking_confirmed' || lead.status === 'deal_closed' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                    'bg-gray-100 text-gray-600 border border-gray-200'
+                    }`}>
+                    {lead.status.replace('_', ' ')}
+                </span>
+            </td>
+            <td className="p-4">
+                <div className="flex items-center gap-2">
+                    <div className="h-6 w-6 rounded-full bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-500">
+                        {typeof lead.assignedTo === 'object' ? lead.assignedTo?.username?.charAt(0) : '?'}
+                    </div>
+                    <span className="text-xs font-medium text-gray-700">
+                        {typeof lead.assignedTo === 'object' ? lead.assignedTo?.username : 'Unassigned'}
+                    </span>
+                </div>
+            </td>
+            <td className="p-4">
+                <div className="flex flex-wrap gap-1 max-w-[150px]">
+                    {lead.tags.length > 0 ? lead.tags.map((tag: any, i: number) => (
+                        <span key={i} className="px-1.5 py-0.5 bg-gray-50 text-gray-500 border border-gray-100 rounded text-[9px] font-medium">
+                            {typeof tag === 'string' ? tag : tag.name}
+                        </span>
+                    )) : <span className="text-[9px] text-gray-300 italic">No tags</span>}
+                </div>
+            </td>
+            <td className="p-4 text-[10px] text-gray-500 whitespace-nowrap">
+                {lead.createdAt ? format(parseISO(lead.createdAt), 'MMM d, yyyy') : 'N/A'}
+            </td>
+        </tr>
+    );
+});
