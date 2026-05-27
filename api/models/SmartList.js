@@ -23,7 +23,8 @@ const smartListSchema = new mongoose.Schema({
         kmDrivenValue: { type: String },
         kmDrivenOp: { type: String },
         amountValue: { type: String },
-        amountOp: { type: String }
+        amountOp: { type: String },
+        date: { type: String }
     }
 }, { timestamps: true });
 

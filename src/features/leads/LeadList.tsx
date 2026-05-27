@@ -205,9 +205,8 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
 
     const navigate = useNavigate();
     const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-    const [showBulkAssignPanel, setShowBulkAssignPanel] = useState(false);
     const [showBulkUpdatePanel, setShowBulkUpdatePanel] = useState(false);
-    const [bulkUpdateType, setBulkUpdateType] = useState<'status' | 'type' | 'tags' | 'date' | 'countryCode' | null>(null);
+    const [bulkUpdateType, setBulkUpdateType] = useState<'status' | 'type' | 'tags' | 'date' | 'countryCode' | 'assign' | null>(null);
     const [bulkTagUpdateType, setBulkTagUpdateType] = useState<'add' | 'remove'>('add');
     const [bulkTags, setBulkTags] = useState<string[]>([]);
 
@@ -353,6 +352,14 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
         if (fuelTypeFilter !== 'all') params.fuelType = fuelTypeFilter;
         if (yearFilter) params.year = yearFilter;
         if (countryCodeFilter) params.countryCode = countryCodeFilter;
+        if (kmDrivenFilter) {
+            params.kmDriven = kmDrivenFilter;
+            params.kmDrivenOp = kmDrivenOp;
+        }
+        if (amountFilter) {
+            params.amount = amountFilter;
+            params.amountOp = amountOp;
+        }
 
         fetchLeads(params);
     }, [
@@ -378,7 +385,11 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
         modelFilter,
         fuelTypeFilter,
         yearFilter,
-        countryCodeFilter
+        countryCodeFilter,
+        kmDrivenFilter,
+        kmDrivenOp,
+        amountFilter,
+        amountOp
     ]);
 
     // Reset pagination when filters change
@@ -433,7 +444,6 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
     const handleBulkAssign = async (userId: string) => {
         await bulkAssignLeads(selectedIds, userId);
         setSelectedIds([]);
-        setShowBulkAssignPanel(false);
     };
 
     const handleSaveSmartList = () => {
@@ -462,7 +472,8 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                 kmDrivenValue: kmDrivenFilter,
                 kmDrivenOp,
                 amountValue: amountFilter,
-                amountOp
+                amountOp,
+                date: dateFilter
             }
         });
         setIsSmartListModalOpen(false);
@@ -593,28 +604,12 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                     </div>
 
                     <div className="flex items-center gap-2">
-                        {selectedIds.length > 0 && currentMode !== 'apileads' && (
-                            <button
-                                onClick={() => setIsSmartListModalOpen(true)}
-                                className="flex items-center gap-2 px-3 py-2 bg-indigo-50 text-indigo-600 rounded-lg text-sm font-bold hover:bg-indigo-100 transition-all border border-indigo-100 mr-2"
-                            >
-                                <Bookmark size={16} /> Save Selection
-                            </button>
-                        )}
                         {selectedIds.length > 0 ? (
                             <div className="flex items-center gap-2 animate-fadeIn">
                                 {/* ... existing buttons ... */}
                                 {currentMode !== 'apileads' && (
                                     <button
-                                        onClick={() => { setShowBulkAssignPanel(!showBulkAssignPanel); setShowBulkUpdatePanel(false); }}
-                                        className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold transition-all ${showBulkAssignPanel ? 'bg-[#1B1B19] text-white shadow-md' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
-                                    >
-                                        <UserPlus size={16} /> Assign
-                                    </button>
-                                )}
-                                {currentMode !== 'apileads' && (
-                                    <button
-                                        onClick={() => { setShowBulkUpdatePanel(!showBulkUpdatePanel); setShowBulkAssignPanel(false); setBulkUpdateType(null); }}
+                                        onClick={() => { setShowBulkUpdatePanel(!showBulkUpdatePanel); setBulkUpdateType(null); }}
                                         className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold transition-all ${showBulkUpdatePanel ? 'bg-[#1B1B19] text-white shadow-md' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
                                     >
                                         <MoreHorizontal size={16} /> Update
@@ -679,29 +674,12 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                     </div>
                 </div>
 
-                {showBulkAssignPanel && currentMode !== 'apileads' && (
-                    <div className="flex items-center gap-3 p-4 bg-indigo-50 rounded-xl border border-indigo-100 animate-slideDown">
-                        <span className="text-sm font-bold text-indigo-700">Assign selection to:</span>
-                        <div className="flex flex-wrap gap-2">
-                            {users.map(user => (
-                                <button
-                                    key={user._id}
-                                    onClick={() => handleBulkAssign(user._id!)}
-                                    className="px-3 py-1 bg-white border border-indigo-200 rounded-full text-xs font-bold text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
-                                >
-                                    {user.username}
-                                </button>
-                            ))}
-                        </div>
-                        <button onClick={() => setShowBulkAssignPanel(false)} className="ml-auto text-indigo-400 hover:text-indigo-600"><X size={18} /></button>
-                    </div>
-                )}
-
                 {showBulkUpdatePanel && currentMode !== 'apileads' && (
                     <div className="flex flex-col gap-3 p-4 bg-indigo-50 rounded-xl border border-indigo-100 animate-slideDown">
                         <div className="flex items-center gap-4">
                             <span className="text-sm font-bold text-indigo-700 whitespace-nowrap">Bulk Update:</span>
                             <div className="flex gap-2">
+                                <button onClick={() => setBulkUpdateType('assign')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all border ${bulkUpdateType === 'assign' ? 'bg-[#1B1B19] text-white border-[#1B1B19]' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>Assign Owner</button>
                                 <button onClick={() => setBulkUpdateType('status')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all border ${bulkUpdateType === 'status' ? 'bg-[#1B1B19] text-white border-[#1B1B19]' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>Status</button>
                                 <button onClick={() => setBulkUpdateType('type')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all border ${bulkUpdateType === 'type' ? 'bg-[#1B1B19] text-white border-[#1B1B19]' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>Lead Type</button>
                                 <button onClick={() => setBulkUpdateType('tags')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all border ${bulkUpdateType === 'tags' ? 'bg-[#1B1B19] text-white border-[#1B1B19]' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>Tags</button>
@@ -710,6 +688,24 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                             </div>
                             <button onClick={() => setShowBulkUpdatePanel(false)} className="ml-auto text-indigo-400 hover:text-indigo-600"><X size={18} /></button>
                         </div>
+
+                        {bulkUpdateType === 'assign' && (
+                            <div className="flex items-center gap-2 p-2 bg-white rounded-lg border border-indigo-100 animate-fadeIn flex-wrap">
+                                {users.map(user => (
+                                    <button
+                                        key={user._id}
+                                        onClick={async () => {
+                                            if (!window.confirm(`Are you sure you want to assign ${selectedIds.length} contact(s) to ${user.username}?`)) return;
+                                            await handleBulkAssign(user._id!);
+                                            setShowBulkUpdatePanel(false);
+                                        }}
+                                        className="px-3 py-1 bg-gray-50 hover:bg-indigo-600 hover:text-white rounded text-xs font-bold capitalize transition-all border border-gray-200/50 hover:border-indigo-600"
+                                    >
+                                        {user.username}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
 
                         {bulkUpdateType === 'status' && (
                             <div className="flex items-center gap-2 p-2 bg-white rounded-lg border border-indigo-100 animate-fadeIn">

@@ -350,10 +350,20 @@ export const getLeads = async (req, res, next) => {
             designation,
             countryCode,
             brand,
+            brandName,
             model,
+            modelName,
             fuelType,
             year,
-            tags
+            tags,
+            tag,
+            kmDriven,
+            kmDrivenValue,
+            kmDrivenOp,
+            amount,
+            amountValue,
+            amountOp,
+            date
         } = req.query;
 
         // Build matching query
@@ -432,37 +442,42 @@ export const getLeads = async (req, res, next) => {
             }
         }
 
-        // Car Details Filters
-        if (brand || model || (fuelType && fuelType !== 'all') || year) {
+        // Car Details Filters (Brand, Model, Fuel, Year)
+        const activeBrand = brand || brandName;
+        const activeModel = model || modelName;
+        const activeFuelType = fuelType;
+        const activeYear = year;
+
+        if (activeBrand || activeModel || (activeFuelType && activeFuelType !== 'all') || activeYear) {
             const orCarConditions = [];
             
-            if (brand) {
-                const brandRegex = new RegExp(brand.trim(), 'i');
+            if (activeBrand) {
+                const brandRegex = new RegExp(activeBrand.trim(), 'i');
                 orCarConditions.push(
                     { 'carDetails.brandName': brandRegex },
                     { 'carDetails.wantedCar.brandName': brandRegex },
                     { 'carDetails.ownedCar.brandName': brandRegex }
                 );
             }
-            if (model) {
-                const modelRegex = new RegExp(model.trim(), 'i');
+            if (activeModel) {
+                const modelRegex = new RegExp(activeModel.trim(), 'i');
                 orCarConditions.push(
                     { 'carDetails.modelName': modelRegex },
                     { 'carDetails.wantedCar.modelName': modelRegex },
                     { 'carDetails.ownedCar.modelName': modelRegex }
                 );
             }
-            if (fuelType && fuelType !== 'all') {
+            if (activeFuelType && activeFuelType !== 'all') {
                 orCarConditions.push(
-                    { 'carDetails.fuelType': fuelType.toLowerCase() },
-                    { 'carDetails.wantedCar.fuelType': fuelType.toLowerCase() },
-                    { 'carDetails.ownedCar.fuelType': fuelType.toLowerCase() }
+                    { 'carDetails.fuelType': activeFuelType.toLowerCase() },
+                    { 'carDetails.wantedCar.fuelType': activeFuelType.toLowerCase() },
+                    { 'carDetails.ownedCar.fuelType': activeFuelType.toLowerCase() }
                 );
             }
-            if (year) {
+            if (activeYear) {
                 orCarConditions.push(
-                    { 'carDetails.wantedCar.year': year },
-                    { 'carDetails.ownedCar.year': year }
+                    { 'carDetails.wantedCar.year': activeYear },
+                    { 'carDetails.ownedCar.year': activeYear }
                 );
             }
 
@@ -477,8 +492,9 @@ export const getLeads = async (req, res, next) => {
         }
 
         // Tags matching
-        if (tags) {
-            const tagList = Array.isArray(tags) ? tags : String(tags).split(',').map(t => t.trim()).filter(Boolean);
+        const activeTags = tags || tag;
+        if (activeTags) {
+            const tagList = Array.isArray(activeTags) ? activeTags : String(activeTags).split(',').map(t => t.trim()).filter(Boolean);
             if (tagList.length > 0) {
                 const validIds = tagList.filter(t => mongoose.Types.ObjectId.isValid(t));
                 const names = tagList.filter(t => !mongoose.Types.ObjectId.isValid(t));
@@ -492,6 +508,113 @@ export const getLeads = async (req, res, next) => {
                 if (tagIds.length > 0) {
                     queryObj.tags = { $in: tagIds };
                 }
+            }
+        }
+
+        // Date matching (Creation Date range check)
+        if (date) {
+            const start = new Date(date);
+            if (!isNaN(start.getTime())) {
+                const end = new Date(start);
+                end.setDate(end.getDate() + 1);
+                queryObj.createdAt = {
+                    $gte: start,
+                    $lt: end
+                };
+            }
+        }
+
+        // Numeric fields converter function helper
+        const convertToDouble = (expr) => ({
+            $convert: {
+                input: expr,
+                to: "double",
+                onError: 0,
+                onNull: 0
+            }
+        });
+
+        // KM Driven matching
+        const activeKmDriven = kmDriven || kmDrivenValue;
+        if (activeKmDriven) {
+            const num = parseFloat(activeKmDriven);
+            if (!isNaN(num)) {
+                const op = kmDrivenOp === 'gt' ? '$gt' : (kmDrivenOp === 'lt' ? '$lt' : '$eq');
+                
+                const kmExpr = {
+                    $anyElementTrue: {
+                        $map: {
+                            input: "$carDetails",
+                            as: "car",
+                            in: {
+                                $or: [
+                                    {
+                                        [op]: [
+                                            convertToDouble("$$car.kmDriven"),
+                                            num
+                                        ]
+                                    },
+                                    {
+                                        [op]: [
+                                            convertToDouble("$$car.wantedCar.kmDriven"),
+                                            num
+                                        ]
+                                    },
+                                    {
+                                        [op]: [
+                                            convertToDouble("$$car.ownedCar.kmDriven"),
+                                            num
+                                        ]
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                };
+
+                queryObj.$expr = queryObj.$expr ? { $and: [queryObj.$expr, kmExpr] } : kmExpr;
+            }
+        }
+
+        // Budget matching
+        const activeAmount = amount || amountValue;
+        if (activeAmount) {
+            const num = parseFloat(activeAmount);
+            if (!isNaN(num)) {
+                const op = amountOp === 'gt' ? '$gt' : (amountOp === 'lt' ? '$lt' : '$eq');
+                
+                const amountExpr = {
+                    $anyElementTrue: {
+                        $map: {
+                            input: "$carDetails",
+                            as: "car",
+                            in: {
+                                $or: [
+                                    {
+                                        [op]: [
+                                            convertToDouble("$$car.amount"),
+                                            num
+                                        ]
+                                    },
+                                    {
+                                        [op]: [
+                                            convertToDouble("$$car.wantedCar.amount"),
+                                            num
+                                        ]
+                                    },
+                                    {
+                                        [op]: [
+                                            convertToDouble("$$car.ownedCar.amount"),
+                                            num
+                                        ]
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                };
+
+                queryObj.$expr = queryObj.$expr ? { $and: [queryObj.$expr, amountExpr] } : amountExpr;
             }
         }
 

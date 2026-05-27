@@ -1,7 +1,6 @@
 import { useState, memo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLeads } from '../../context/LeadsContext';
-import { motion, AnimatePresence } from 'framer-motion';
 import { Lead } from '../../types';
 import { Zap, PhoneCall, Users, Eye, Phone, User, Briefcase, Calendar, CreditCard } from 'lucide-react';
 

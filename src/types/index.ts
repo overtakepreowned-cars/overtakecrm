@@ -115,6 +115,7 @@ export interface LeadFilter {
     kmDrivenOp?: 'eq' | 'gt' | 'lt';
     amountValue?: string;
     amountOp?: 'eq' | 'gt' | 'lt';
+    date?: string;
 }
 export interface ApiLeadEditData {
     name?: string;
