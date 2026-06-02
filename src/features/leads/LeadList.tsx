@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLeads } from '../../context/LeadsContext';
-import { Search, Filter, X, Briefcase, Bookmark, MoreHorizontal, Trash2, UserPlus, CheckCircle2, Phone, Car, Edit3, Save, User as UserIcon, AlertTriangle, Calendar, Upload } from 'lucide-react';
+import { Search, Filter, X, Briefcase, Bookmark, MoreHorizontal, Trash2, CheckCircle2, Phone, Car, Edit3, Save, User as UserIcon, AlertTriangle, Calendar, Upload } from 'lucide-react';
 import { parseISO, format } from 'date-fns';
 import { Lead, CarDetail, ApiLeadEditData, LeadFilter } from '../../types';
 import { useAuth } from '../../context/AuthContext';
