@@ -152,7 +152,7 @@ export function WorkingReport() {
                             {dailyData[0]?.isFinalized ? 'Report Finalized' : 'Live Report (Finalizes at 6 PM)'}
                         </div>
                             <PieChart size={20} className="text-[#1B1B19]" />
-                        <h3 className="font-bold text-gray-900">Daily Performance - {isSameDay(parseISO(selectedDate), today) ? "Today" : format(parseISO(selectedDate), 'dd/MM/yyyy')}</h3>
+                        <h3 className="font-bold text-gray-900">Daily Performance - {selectedDate && !isNaN(parseISO(selectedDate).getTime()) ? (isSameDay(parseISO(selectedDate), today) ? "Today" : format(parseISO(selectedDate), 'dd/MM/yyyy')) : ""}</h3>
                     </div>
                 </div>
 

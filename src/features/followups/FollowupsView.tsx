@@ -7,14 +7,14 @@ import { Phone, Calendar as CalendarIcon, Clock, CheckCircle2, AlertCircle, User
 import { Lead } from '../../types';
 
 export function FollowupsView() {
-    const { leads, users, updateLead, fetchLeads } = useLeads();
+    const { leads, users, fetchLeads } = useLeads();
     const navigate = useNavigate();
 
     // Filters & Tabs
     const [activeTab, setActiveTab] = useState<'today' | 'upcoming' | 'missed'>('today');
     const [assigneeFilter, setAssigneeFilter] = useState<string>('all');
     const [specificDateFilter, setSpecificDateFilter] = useState<string>('');
-    const [draggedLead, setDraggedLead] = useState<Lead | null>(null);
+
 
     const tabs = [
         { id: 'today', title: 'Today', icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-50', border: 'border-emerald-100', activeBg: 'bg-emerald-100' },
@@ -60,6 +60,10 @@ export function FollowupsView() {
         const result: Record<string, Lead[]> = { missed: [], today: [], upcoming: [] };
         const today = startOfDay(new Date());
 
+        // 6 PM logic
+        const now = new Date();
+        const isPast6PM = now.getHours() >= 18;
+
         filteredLeads.forEach(lead => {
             if (!lead.followupDate) return; // Skip if no followup date
 
@@ -73,7 +77,11 @@ export function FollowupsView() {
                 if (fDate < today) {
                     result.missed.push(lead);
                 } else if (isSameDay(fDate, today)) {
-                    result.today.push(lead);
+                    if (isPast6PM) {
+                        result.missed.push(lead);
+                    } else {
+                        result.today.push(lead);
+                    }
                 } else {
                     result.upcoming.push(lead);
                 }
@@ -98,47 +106,12 @@ export function FollowupsView() {
         const grouped: Record<string, Lead[]> = { hot: [], warm: [], cold: [] };
         
         currentTabLeads.forEach(lead => {
-            const type = (lead.leadType || 'cold').toLowerCase(); // Fallback to 'cold' if missing
-            if (grouped[type]) {
-                grouped[type].push(lead);
-            } else {
-                grouped.cold.push(lead); // Default fallback column
-            }
+            grouped[lead.leadType] = grouped[lead.leadType] || [];
+            grouped[lead.leadType].push(lead);
         });
+
         return grouped;
     }, [currentTabLeads]);
-
-    const handleDragStart = (e: React.DragEvent, lead: Lead) => {
-        setDraggedLead(lead);
-        e.dataTransfer.setData('text/plain', lead._id);
-        e.dataTransfer.effectAllowed = 'move';
-
-        const target = e.target as HTMLElement;
-        target.style.opacity = '0.4';
-    };
-
-    const handleDragEnd = (e: React.DragEvent) => {
-        setDraggedLead(null);
-        const target = e.target as HTMLElement;
-        target.style.opacity = '1';
-    };
-
-    const handleDragOver = (e: React.DragEvent) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-    };
-
-    const handleDrop = async (e: React.DragEvent, targetType: string) => {
-        e.preventDefault();
-        if (!draggedLead || draggedLead.leadType === targetType) return;
-
-        try {
-            await updateLead(draggedLead._id, { leadType: targetType as 'hot' | 'warm' | 'cold' });
-        } catch (error) {
-            console.error('Failed to change lead type:', error);
-        }
-        setDraggedLead(null);
-    };
 
     return (
         <div className="flex flex-col gap-6">
@@ -217,9 +190,7 @@ export function FollowupsView() {
                     return (
                         <div
                             key={column.id}
-                            onDragOver={handleDragOver}
-                            onDrop={(e) => handleDrop(e, column.id)}
-                            className={`w-[85vw] lg:w-auto flex flex-col gap-4 rounded-2xl border border-gray-100 bg-gray-50/50 p-4 overflow-hidden shrink-0 snap-center transition-colors ${draggedLead && draggedLead.leadType !== column.id ? 'bg-gray-100 border-dashed border-gray-300' : ''}`}
+                            className="w-[85vw] lg:w-auto flex flex-col gap-4 rounded-2xl border border-gray-100 bg-gray-50/50 p-4 overflow-hidden shrink-0 snap-center"
                             >
                             <div className="flex items-center justify-between px-2">
                                 <div className="flex items-center gap-2">
@@ -229,10 +200,10 @@ export function FollowupsView() {
                                     <h3
                                         className={
                                             column.id === 'hot'
-                                                ? 'font-bold text-xs uppercase tracking-wide px-3 py-1 rounded-full shadow-sm bg-red-500 text-white'
-                                                : column.id === 'warm'
-                                                ? 'font-bold text-xs uppercase tracking-wide px-3 py-1 rounded-full shadow-sm bg-amber-400 text-white'
-                                                : 'font-bold text-xs uppercase tracking-wide px-3 py-1 rounded-full shadow-sm bg-blue-500 text-white'
+                                                 ? 'font-bold text-xs uppercase tracking-wide px-3 py-1 rounded-full shadow-sm bg-red-500 text-white'
+                                                 : column.id === 'warm'
+                                                 ? 'font-bold text-xs uppercase tracking-wide px-3 py-1 rounded-full shadow-sm bg-amber-400 text-white'
+                                                 : 'font-bold text-xs uppercase tracking-wide px-3 py-1 rounded-full shadow-sm bg-blue-500 text-white'
                                         }
                                     >
                                         {column.title} Leads
@@ -246,10 +217,7 @@ export function FollowupsView() {
                             <div className="flex-1 overflow-y-auto pr-1 space-y-4 scrollbar-thin scrollbar-thumb-gray-200">
                                 {columnLeads.length === 0 ? (
                                     <div className="flex flex-col items-center justify-center py-12 text-gray-300 h-full">
-                                        <div className="h-10 w-10 rounded-full border-2 border-dashed border-gray-200 flex items-center justify-center mb-2">
-                                            <Plus size={20} />
-                                        </div>
-                                        <span className="text-[10px] font-bold uppercase tracking-widest text-center">Drag leads<br />here</span>
+                                        <span className="text-[10px] font-bold uppercase tracking-widest text-center">No leads</span>
                                     </div>
                                 ) : (
                                     <AnimatePresence mode="popLayout" initial={false}>
@@ -265,12 +233,7 @@ export function FollowupsView() {
                                                     animate={{ opacity: 1, scale: 1 }}
                                                     exit={{ opacity: 0, scale: 0.9 }}
                                                     whileHover={{ y: -3 }}
-                                                    draggable
-                                                    /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-                                                    onDragStart={(e) => handleDragStart(e as any, lead)}
-                                                    /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-                                                    onDragEnd={(e) => handleDragEnd(e as any)}
-                                                    className="group relative rounded-xl border border-gray-100 bg-white p-4 shadow-sm transition-all hover:border-gray-200 hover:shadow-md flex flex-col gap-3 cursor-grab active:cursor-grabbing"
+                                                    className="group relative rounded-xl border border-gray-100 bg-white p-4 shadow-sm transition-all hover:border-gray-200 hover:shadow-md flex flex-col gap-3 cursor-default"
                                                 >
                                                     <div className="flex justify-between items-start gap-3">
                                                         <div className="flex flex-col min-w-0">

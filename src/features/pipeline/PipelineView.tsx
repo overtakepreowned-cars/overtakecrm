@@ -1,59 +1,246 @@
-import { useState, memo, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLeads } from '../../context/LeadsContext';
+import { authenticatedFetch } from '../../utils/api';
 import { Lead } from '../../types';
 import { Zap, PhoneCall, Users, Eye, Phone, User, Briefcase, Calendar, CreditCard } from 'lucide-react';
-
 import { clsx } from 'clsx';
 
+const PAGE_SIZE = 30;
+
+type ColumnState = {
+    leads: Lead[];
+    total: number;
+    page: number;
+    hasMore: boolean;
+    loading: boolean;
+};
+
+const defaultColumn = (): ColumnState => ({ leads: [], total: 0, page: 0, hasMore: true, loading: false });
+
+const mapLeads = (raw: any[]): Lead[] =>
+    raw.map(l => ({
+        ...l,
+        tags: l.tags || [],
+        carDetails: l.carDetails || [],
+        phone: l.phone || 'Unknown',
+        assignmentHistory: l.assignmentHistory || [],
+        followupHistory: l.followupHistory || [],
+    }));
+
+// Module-level cache — survives component unmount (e.g. navigating to a lead card and back)
+type PipelineCache = {
+    columns: Record<string, ColumnState>;
+    statusTotals: Record<string, number>;
+    activeStatus: Lead['status'];
+    userFilter: string;
+};
+let pipelineCache: PipelineCache | null = null;
+
+const TYPE_COLUMNS = [
+    { id: 'hot', title: 'Hot Leads', icon: Zap, color: 'text-red-500', bg: 'bg-red-50', border: 'border-red-100' },
+    { id: 'warm', title: 'Warm Leads', icon: PhoneCall, color: 'text-amber-500', bg: 'bg-amber-50', border: 'border-amber-100' },
+    { id: 'cold', title: 'Cold Leads', icon: Users, color: 'text-blue-500', bg: 'bg-blue-50', border: 'border-blue-100' },
+];
+
+const STATUSES = [
+    { id: 'new', title: 'New', icon: Users, color: 'text-gray-500', bg: 'bg-gray-50', border: 'border-gray-100', activeBg: 'bg-gray-100' },
+    { id: 'contacted', title: 'Contacted', icon: PhoneCall, color: 'text-blue-500', bg: 'bg-blue-50', border: 'border-blue-100', activeBg: 'bg-blue-100' },
+    { id: 'booking_confirmed', title: 'Booking Confirmed', icon: Zap, color: 'text-emerald-500', bg: 'bg-emerald-50', border: 'border-emerald-100', activeBg: 'bg-emerald-100' },
+    { id: 'deal_closed', title: 'Deal Closed', icon: Briefcase, color: 'text-indigo-500', bg: 'bg-indigo-50', border: 'border-indigo-100', activeBg: 'bg-indigo-100' },
+];
+
 export function PipelineView() {
-    const { leads, updateLead, users, stats, fetchLeads, loading, clearLeads } = useLeads();
+    const { users } = useLeads();
     const navigate = useNavigate();
-    const [activeStatus, setActiveStatus] = useState<Lead['status']>('new');
-    const [userFilter, setUserFilter] = useState('all');
-    const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({
-        hot: 30,
-        warm: 30,
-        cold: 30
-    });
 
-    const statuses = [
-        { id: 'new', title: 'New', icon: Users, color: 'text-gray-500', bg: 'bg-gray-50', border: 'border-gray-100', activeBg: 'bg-gray-100' },
-        { id: 'contacted', title: 'Contacted', icon: PhoneCall, color: 'text-blue-500', bg: 'bg-blue-50', border: 'border-blue-100', activeBg: 'bg-blue-100' },
-        { id: 'booking_confirmed', title: 'Booking Confirmed', icon: Zap, color: 'text-emerald-500', bg: 'bg-emerald-50', border: 'border-emerald-100', activeBg: 'bg-emerald-100' },
-        { id: 'deal_closed', title: 'Deal Closed', icon: Briefcase, color: 'text-indigo-500', bg: 'bg-indigo-50', border: 'border-indigo-100', activeBg: 'bg-indigo-100' },
-    ];
+    // Restore last active tab/filter from cache so the board re-opens where the user left off
+    const [activeStatus, setActiveStatus] = useState<Lead['status']>(
+        pipelineCache?.activeStatus ?? 'new'
+    );
+    const [userFilter, setUserFilter] = useState(pipelineCache?.userFilter ?? 'all');
 
-    const typeColumns = [
-        { id: 'hot', title: 'Hot Leads', icon: Zap, color: 'text-red-500', bg: 'bg-red-50', border: 'border-red-100' },
-        { id: 'warm', title: 'Warm Leads', icon: PhoneCall, color: 'text-amber-500', bg: 'bg-amber-50', border: 'border-amber-100' },
-        { id: 'cold', title: 'Cold Leads', icon: Users, color: 'text-blue-500', bg: 'bg-blue-50', border: 'border-blue-100' },
-    ];
+    const [columns, setColumns] = useState<Record<string, ColumnState>>(
+        pipelineCache?.columns ?? { hot: defaultColumn(), warm: defaultColumn(), cold: defaultColumn() }
+    );
+    const [statusTotals, setStatusTotals] = useState<Record<string, number>>(
+        pipelineCache?.statusTotals ?? {}
+    );
+    const [boardLoading, setBoardLoading] = useState(false);
 
-    const handleUpdate = (leadId: string, data: Partial<Lead>) => {
-        updateLead(leadId, data);
-    };
+    // Epoch prevents stale fetch responses from overwriting fresh ones
+    const epochRef = useRef(0);
 
-    useEffect(() => {
-        fetchLeads({
-            status: activeStatus,
-            assignedTo: userFilter !== 'all' ? userFilter : undefined,
-            limit: 1000
-        });
-    }, [activeStatus, userFilter]);
+    // Refs keep the latest state values accessible in the unmount cleanup without stale closures
+    const columnsRef = useRef(columns);
+    const statusTotalsRef = useRef(statusTotals);
+    const activeStatusRef = useRef(activeStatus);
+    const userFilterRef = useRef(userFilter);
+    useEffect(() => { columnsRef.current = columns; }, [columns]);
+    useEffect(() => { statusTotalsRef.current = statusTotals; }, [statusTotals]);
+    useEffect(() => { activeStatusRef.current = activeStatus; }, [activeStatus]);
+    useEffect(() => { userFilterRef.current = userFilter; }, [userFilter]);
 
-    useEffect(() => {
-        setVisibleCounts({ hot: 30, warm: 30, cold: 30 });
-    }, [activeStatus, userFilter]);
-
+    // Save state to module-level cache when navigating away so it survives remount
     useEffect(() => {
         return () => {
-            clearLeads();
+            pipelineCache = {
+                columns: columnsRef.current,
+                statusTotals: statusTotalsRef.current,
+                activeStatus: activeStatusRef.current,
+                userFilter: userFilterRef.current,
+            };
         };
     }, []);
 
-    const filteredLeads = leads;
+    const buildQs = useCallback((extra: Record<string, string | number> = {}) => {
+        const p: Record<string, string> = { status: activeStatus };
+        if (userFilter !== 'all') p.assignedTo = userFilter;
+        for (const [k, v] of Object.entries(extra)) p[k] = String(v);
+        return new URLSearchParams(p).toString();
+    }, [activeStatus, userFilter]);
 
+    const fetchStatusTotals = useCallback(async () => {
+        const qs = userFilter !== 'all' ? `?assignedTo=${userFilter}` : '';
+        const res = await authenticatedFetch(`/api/leads/stats${qs}`);
+        if (res.ok) {
+            const data = await res.json();
+            setStatusTotals(data.statusBreakdown || {});
+        }
+    }, [userFilter]);
+
+    const fetchColumnPage = useCallback(async (
+        colId: string,
+        page: number,
+        epoch: number,
+        reset: boolean
+    ) => {
+        setColumns(prev => ({
+            ...prev,
+            [colId]: { ...prev[colId], loading: true },
+        }));
+
+        try {
+            const qs = buildQs({ leadType: colId, page, limit: PAGE_SIZE });
+            const res = await authenticatedFetch(`/api/leads?${qs}`);
+            if (epochRef.current !== epoch) return;
+            if (!res.ok) throw new Error('fetch failed');
+            const data = await res.json();
+            if (epochRef.current !== epoch) return;
+
+            const newLeads = mapLeads(data.leads || []);
+            const total = data.total ?? 0;
+
+            setColumns(prev => ({
+                ...prev,
+                [colId]: {
+                    leads: reset ? newLeads : [...prev[colId].leads, ...newLeads],
+                    total,
+                    page,
+                    hasMore: newLeads.length === PAGE_SIZE,
+                    loading: false,
+                },
+            }));
+        } catch {
+            if (epochRef.current === epoch) {
+                setColumns(prev => ({ ...prev, [colId]: { ...prev[colId], loading: false } }));
+            }
+        }
+    }, [buildQs]);
+
+    // Reload all columns when status or user filter changes.
+    // If the cache already has data for the current params (coming back from a lead card),
+    // skip the loading overlay and refresh silently in the background.
+    useEffect(() => {
+        const epoch = ++epochRef.current;
+
+        const isCacheHit =
+            pipelineCache &&
+            pipelineCache.activeStatus === activeStatus &&
+            pipelineCache.userFilter === userFilter &&
+            TYPE_COLUMNS.some(c => (pipelineCache!.columns[c.id]?.leads.length ?? 0) > 0);
+
+        if (!isCacheHit) {
+            setBoardLoading(true);
+            setColumns({ hot: defaultColumn(), warm: defaultColumn(), cold: defaultColumn() });
+        }
+
+        Promise.all(
+            TYPE_COLUMNS.map(col => fetchColumnPage(col.id, 0, epoch, true))
+        ).finally(() => {
+            if (epochRef.current === epoch) setBoardLoading(false);
+        });
+    }, [activeStatus, userFilter]);
+
+    // Refresh status totals whenever user filter changes (tabs stay accurate)
+    useEffect(() => {
+        fetchStatusTotals();
+    }, [userFilter]);
+
+    const handleScroll = (colId: string, e: React.UIEvent<HTMLDivElement>) => {
+        const el = e.currentTarget;
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200) {
+            const col = columns[colId];
+            if (col.hasMore && !col.loading) {
+                fetchColumnPage(colId, col.page + 1, epochRef.current, false);
+            }
+        }
+    };
+
+    const handleUpdate = async (leadId: string, updates: Partial<Lead>) => {
+        const sourceColId = TYPE_COLUMNS.find(c => columns[c.id].leads.some(l => l._id === leadId))?.id;
+
+        // Optimistic: remove or update in local state
+        if (updates.leadType && sourceColId && updates.leadType !== sourceColId) {
+            setColumns(prev => ({
+                ...prev,
+                [sourceColId]: {
+                    ...prev[sourceColId],
+                    leads: prev[sourceColId].leads.filter(l => l._id !== leadId),
+                    total: Math.max(0, prev[sourceColId].total - 1),
+                },
+            }));
+        } else if (updates.status && updates.status !== activeStatus) {
+            setColumns(prev => {
+                const next = { ...prev };
+                for (const c of TYPE_COLUMNS) {
+                    next[c.id] = {
+                        ...next[c.id],
+                        leads: next[c.id].leads.filter(l => l._id !== leadId),
+                        total: Math.max(0, next[c.id].total - 1),
+                    };
+                }
+                return next;
+            });
+            setStatusTotals(prev => ({
+                ...prev,
+                [activeStatus]: Math.max(0, (prev[activeStatus] || 0) - 1),
+                [updates.status!]: (prev[updates.status!] || 0) + 1,
+            }));
+        } else if (sourceColId) {
+            setColumns(prev => ({
+                ...prev,
+                [sourceColId]: {
+                    ...prev[sourceColId],
+                    leads: prev[sourceColId].leads.map(l => l._id === leadId ? { ...l, ...updates } : l),
+                },
+            }));
+        }
+
+        try {
+            await authenticatedFetch(`/api/leads/${leadId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updates),
+            });
+        } catch {
+            // On API failure, refresh the affected column
+            if (sourceColId) fetchColumnPage(sourceColId, 0, epochRef.current, true);
+        }
+    };
+
+    const anyColumnLoading = TYPE_COLUMNS.some(c => columns[c.id].loading && columns[c.id].leads.length === 0);
+    const showBoardSpinner = boardLoading || anyColumnLoading;
 
     return (
         <div className="flex flex-col gap-6">
@@ -67,33 +254,36 @@ export function PipelineView() {
                 }
             `}</style>
 
-            {/* Status Tabs (Matching Followups style) */}
+            {/* Status Tabs */}
             <div className="flex flex-col lg:flex-row justify-between items-center gap-4 bg-white p-2 sm:p-3 rounded-2xl border border-gray-100 shadow-sm">
                 <div className="flex w-full lg:w-auto p-1 bg-gray-50 rounded-xl overflow-x-auto no-scrollbar">
                     <div className="flex gap-1 min-w-max w-full">
-                        {statuses.map((status) => {
-                            const count = userFilter === 'all' 
-                                ? (stats?.statusBreakdown?.[status.id] || 0) 
-                                : (activeStatus === status.id ? filteredLeads.length : 0);
+                        {STATUSES.map((status) => {
+                            const isActive = activeStatus === status.id;
+                            const total = isActive
+                                ? TYPE_COLUMNS.reduce((s, c) => s + columns[c.id].total, 0)
+                                : (statusTotals[status.id] ?? null);
                             return (
                                 <button
                                     key={status.id}
                                     onClick={() => setActiveStatus(status.id as Lead['status'])}
                                     className={clsx(
                                         "flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 rounded-lg font-bold text-xs sm:text-sm transition-all duration-200 whitespace-nowrap border-transparent border",
-                                        activeStatus === status.id
+                                        isActive
                                             ? `${status.activeBg} ${status.border} text-black shadow-sm`
                                             : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
                                     )}
                                 >
-                                    <status.icon size={16} className={activeStatus === status.id ? status.color : 'text-gray-400'} />
+                                    <status.icon size={16} className={isActive ? status.color : 'text-gray-400'} />
                                     {status.title}
-                                    <span className={clsx(
-                                        "ml-2 text-[10px] px-2 py-0.5 rounded-full",
-                                        activeStatus === status.id ? `${status.bg} ${status.color}` : "bg-gray-200 text-gray-400"
-                                    )}>
-                                        {count}
-                                    </span>
+                                    {total !== null && (
+                                        <span className={clsx(
+                                            "ml-2 text-[10px] px-2 py-0.5 rounded-full",
+                                            isActive ? `${status.bg} ${status.color}` : "bg-gray-200 text-gray-400"
+                                        )}>
+                                            {total}
+                                        </span>
+                                    )}
                                 </button>
                             );
                         })}
@@ -117,10 +307,9 @@ export function PipelineView() {
                 </div>
             </div>
 
-            {/* Board Container */}
+            {/* Board */}
             <div className="relative">
-                {/* Loading Board Overlay */}
-                {loading && (
+                {showBoardSpinner && (
                     <div className="absolute inset-0 z-20 bg-white/40 backdrop-blur-[2px] flex items-center justify-center transition-all duration-300 rounded-2xl">
                         <div className="flex flex-col items-center gap-3 p-6 bg-white/80 border border-gray-100 rounded-2xl shadow-xl backdrop-blur-md">
                             <div className="w-10 h-10 border-4 border-indigo-600/20 border-t-indigo-600 rounded-full animate-spin"></div>
@@ -129,11 +318,9 @@ export function PipelineView() {
                     </div>
                 )}
 
-                {/* Type Kanban (Matching Followups style) */}
                 <div className="flex lg:grid lg:grid-cols-3 gap-6 h-[calc(100vh-280px)] overflow-x-auto snap-x snap-mandatory no-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
-                    {typeColumns.map((column) => {
-                        const columnLeads = filteredLeads.filter((l: Lead) => l.status === activeStatus && l.leadType === column.id);
-                        const visibleLeads = columnLeads.slice(0, visibleCounts[column.id] || 30);
+                    {TYPE_COLUMNS.map((column) => {
+                        const col = columns[column.id];
                         return (
                             <div
                                 key={column.id}
@@ -155,45 +342,36 @@ export function PipelineView() {
                                             {column.title}
                                         </h3>
                                         <span className="text-xs font-bold text-gray-600 bg-gray-100 px-2.5 py-0.5 rounded-full border border-gray-200">
-                                            {columnLeads.length}
+                                            {col.total}
                                         </span>
                                     </div>
                                 </div>
 
                                 <div
                                     className="flex-1 overflow-y-auto pr-1 space-y-4 scrollbar-thin scrollbar-thumb-gray-200"
-                                    onScroll={(e) => {
-                                        const target = e.currentTarget;
-                                        if (target.scrollTop + target.clientHeight >= target.scrollHeight - 200) {
-                                            setVisibleCounts(prev => {
-                                                const currentCount = prev[column.id] || 30;
-                                                if (currentCount < columnLeads.length) {
-                                                    return {
-                                                        ...prev,
-                                                        [column.id]: currentCount + 30
-                                                    };
-                                                }
-                                                return prev;
-                                            });
-                                        }
-                                    }}
+                                    onScroll={(e) => handleScroll(column.id, e)}
                                 >
-                                    {visibleLeads.map((lead) => (
+                                    {col.leads.map((lead) => (
                                         <PipelineCard
                                             key={lead._id}
                                             lead={lead}
                                             onUpdate={handleUpdate}
                                             onNavigate={(id: string) => navigate(`/contact/${id}`)}
-                                            typeColumns={typeColumns}
-                                            statuses={statuses}
+                                            typeColumns={TYPE_COLUMNS}
+                                            statuses={STATUSES}
                                         />
                                     ))}
-                                    {visibleLeads.length < columnLeads.length && (
-                                        <div className="flex justify-center items-center py-4">
-                                            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 animate-pulse">Loading more leads...</span>
+                                    {col.loading && col.leads.length > 0 && (
+                                        <div className="flex justify-center py-4">
+                                            <div className="w-5 h-5 border-2 border-indigo-600/20 border-t-indigo-600 rounded-full animate-spin"></div>
                                         </div>
                                     )}
-                                    {columnLeads.length === 0 && (
+                                    {!col.loading && !col.hasMore && col.leads.length > 0 && (
+                                        <div className="flex justify-center py-3">
+                                            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-300">All {col.total} loaded</span>
+                                        </div>
+                                    )}
+                                    {!col.loading && col.leads.length === 0 && (
                                         <div className="flex flex-col items-center justify-center py-12 text-gray-300">
                                             <span className="text-[10px] font-bold uppercase tracking-widest text-center">No {column.title}</span>
                                         </div>

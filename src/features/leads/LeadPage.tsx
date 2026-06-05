@@ -1,5 +1,5 @@
 import { Phone, MapPin, Tag, Briefcase, History, Trash2, Edit3, User, Car, ArrowLeft, Calendar, CreditCard, CheckCircle2, X } from 'lucide-react';
-import { format, isValid, startOfDay } from 'date-fns';
+import { format, isValid, startOfDay, isSameDay } from 'date-fns';
 import { useLeads } from '../../context/LeadsContext';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
@@ -7,6 +7,27 @@ import { LeadFormModal } from './LeadFormModal';
 import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
 import { Lead } from '../../types';
 import { authenticatedFetch } from '../../utils/api';
+
+const formatLocalDate = (date: Date) => {
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+};
+
+const getMinFollowupDate = () => {
+    const now = new Date();
+    const cutoff = new Date();
+    cutoff.setHours(17, 30, 0, 0); // 5:30 PM
+    
+    if (now > cutoff) {
+        const tomorrow = new Date();
+        tomorrow.setDate(now.getDate() + 1);
+        return formatLocalDate(tomorrow);
+    } else {
+        return formatLocalDate(now);
+    }
+};
 
 export function LeadPage() {
     const { id } = useParams<{ id: string }>();
@@ -88,6 +109,21 @@ export function LeadPage() {
 
     const handleScheduleMeeting = async () => {
         if (!newFollowupDate || !id) return;
+
+        const dateStr = newFollowupDate.split('T')[0];
+        const minDate = getMinFollowupDate();
+        if (dateStr < minDate) {
+            const now = new Date();
+            const cutoff = new Date();
+            cutoff.setHours(17, 30, 0, 0);
+            if (now > cutoff && dateStr === formatLocalDate(now)) {
+                alert('Cannot schedule same-day follow-up after 5:30 PM');
+            } else {
+                alert('Cannot select a past date');
+            }
+            return;
+        }
+
         await updateLead(id, {
             followupDate: newFollowupDate
         });
@@ -127,9 +163,35 @@ export function LeadPage() {
 
     const isMissed = (dateStr?: string) => {
         if (!dateStr) return false;
-        const date = new Date(dateStr);
-        const today = startOfDay(new Date());
-        return isValid(date) && startOfDay(date) < today;
+        try {
+            const date = new Date(dateStr);
+            if (!isValid(date)) return false;
+            const fDate = startOfDay(date);
+            const today = startOfDay(new Date());
+            if (fDate < today) return true;
+            
+            // After 6 PM logic
+            const now = new Date();
+            const isPast6PM = now.getHours() >= 18;
+            if (isSameDay(fDate, today) && isPast6PM) return true;
+            
+            return false;
+        } catch {
+            return false;
+        }
+    };
+
+    const canCompleteFollowup = (dateStr?: string) => {
+        if (!dateStr) return false;
+        try {
+            const date = new Date(dateStr);
+            if (!isValid(date)) return false;
+            const fDate = startOfDay(date);
+            const today = startOfDay(new Date());
+            return fDate <= today;
+        } catch {
+            return false;
+        }
     };
 
     if (pageLoading) {
@@ -497,6 +559,7 @@ export function LeadPage() {
                                                 <div className="flex gap-2">
                                                     <input
                                                         type="date"
+                                                        min={getMinFollowupDate()}
                                                         value={newFollowupDate}
                                                         onChange={(e) => setNewFollowupDate(e.target.value)}
                                                         className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-gray-200 focus:ring-2 focus:ring-[#1B1B19]/10 focus:border-[#1B1B19] outline-none transition-all shadow-sm"
@@ -525,17 +588,26 @@ export function LeadPage() {
                             {/* Follow-up Note & Action */}
                             {lead.followupDate && (
                                 <div className="flex flex-col gap-3 p-5 bg-amber-50/30 rounded-xl border border-amber-100 shadow-sm">
-                                    <span className="text-[10px] font-bold uppercase tracking-widest text-amber-600">Complete Follow-up Action</span>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[10px] font-bold uppercase tracking-widest text-amber-600">Complete Follow-up Action</span>
+                                        {!canCompleteFollowup(lead.followupDate) && (
+                                            <span className="text-[9px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter">Locked</span>
+                                        )}
+                                    </div>
                                     <div className="flex gap-2">
                                         <button
                                             onClick={() => handleAddFollowupNote('responded')}
-                                            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold bg-[#1B1B19] text-white hover:bg-black transition-all shadow-sm uppercase"
+                                            disabled={!canCompleteFollowup(lead.followupDate)}
+                                            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold bg-[#1B1B19] text-white hover:bg-black transition-all shadow-sm uppercase disabled:opacity-50 disabled:cursor-not-allowed"
+                                            title={canCompleteFollowup(lead.followupDate) ? "Responded" : "Available from follow-up date"}
                                         >
                                             <CheckCircle2 size={14} /> Responded
                                         </button>
                                         <button
                                             onClick={() => handleAddFollowupNote('not_responded')}
-                                            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 transition-all shadow-sm uppercase"
+                                            disabled={!canCompleteFollowup(lead.followupDate)}
+                                            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 transition-all shadow-sm uppercase disabled:opacity-50 disabled:cursor-not-allowed"
+                                            title={canCompleteFollowup(lead.followupDate) ? "Not Responded" : "Available from follow-up date"}
                                         >
                                             <X size={14} /> Not Responded
                                         </button>

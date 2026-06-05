@@ -21,9 +21,35 @@ export function LeadCard({ lead, onClick, onStatusChange }: LeadCardProps) {
 
     const isMissed = (dateStr?: string) => {
         if (!dateStr) return false;
-        const date = parseISO(dateStr);
-        const today = startOfDay(new Date());
-        return isValid(date) && startOfDay(date) < today && !isSameDay(date, today);
+        try {
+            const date = parseISO(dateStr);
+            if (!isValid(date)) return false;
+            const fDate = startOfDay(date);
+            const today = startOfDay(new Date());
+            if (fDate < today) return true;
+            
+            // After 6 PM logic
+            const now = new Date();
+            const isPast6PM = now.getHours() >= 18;
+            if (isSameDay(fDate, today) && isPast6PM) return true;
+            
+            return false;
+        } catch {
+            return false;
+        }
+    };
+
+    const canCompleteFollowup = (dateStr?: string) => {
+        if (!dateStr) return false;
+        try {
+            const date = parseISO(dateStr);
+            if (!isValid(date)) return false;
+            const fDate = startOfDay(date);
+            const today = startOfDay(new Date());
+            return fDate <= today; // Can only complete on or after the followup date
+        } catch {
+            return false;
+        }
     };
 
     const formatDate = (dateStr?: string) => {
@@ -102,19 +128,28 @@ export function LeadCard({ lead, onClick, onStatusChange }: LeadCardProps) {
                         </div>
                         <div className="flex items-center gap-1.5">
                             <button
-                                onClick={(e) => { e.stopPropagation(); completeFollowup(lead._id, undefined, 'not_responded'); }}
-                                className="p-1.5 rounded-md bg-white text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all border border-gray-100 shadow-sm"
-                                title="Not Responded"
+                                onClick={(e) => { e.stopPropagation(); if (canCompleteFollowup(lead.followupDate)) completeFollowup(lead._id, undefined, 'not_responded'); }}
+                                disabled={!canCompleteFollowup(lead.followupDate)}
+                                className={clsx(
+                                    "p-1.5 rounded-md transition-all border shadow-sm",
+                                    canCompleteFollowup(lead.followupDate)
+                                        ? "bg-white text-gray-400 hover:text-gray-600 hover:bg-gray-100 border-gray-100"
+                                        : "bg-gray-50 text-gray-200 border-gray-100 cursor-not-allowed"
+                                )}
+                                title={canCompleteFollowup(lead.followupDate) ? "Not Responded" : "Available from follow-up date"}
                             >
                                 <X size={12} />
                             </button>
                             <button
-                                onClick={(e) => { e.stopPropagation(); completeFollowup(lead._id, undefined, 'responded'); }}
+                                onClick={(e) => { e.stopPropagation(); if (canCompleteFollowup(lead.followupDate)) completeFollowup(lead._id, undefined, 'responded'); }}
+                                disabled={!canCompleteFollowup(lead.followupDate)}
                                 className={clsx(
                                     "p-1.5 rounded-md text-white transition-all shadow-sm",
-                                    isMissed(lead.followupDate) ? "bg-red-600 hover:bg-red-700" : "bg-[#1B1B19] hover:bg-black"
+                                    canCompleteFollowup(lead.followupDate)
+                                        ? isMissed(lead.followupDate) ? "bg-red-600 hover:bg-red-700" : "bg-[#1B1B19] hover:bg-black"
+                                        : "bg-gray-200 cursor-not-allowed"
                                 )}
-                                title="Complete Follow-up"
+                                title={canCompleteFollowup(lead.followupDate) ? "Complete Follow-up" : "Available from follow-up date"}
                             >
                                 <CheckCircle2 size={12} />
                             </button>

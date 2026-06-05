@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, memo } from 'react';
+import { useState, useMemo, useEffect, useRef, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLeads } from '../../context/LeadsContext';
 import { Search, Filter, X, Briefcase, Bookmark, MoreHorizontal, Trash2, CheckCircle2, Phone, Car, Edit3, Save, User as UserIcon, AlertTriangle, Calendar, Upload } from 'lucide-react';
@@ -10,28 +10,79 @@ import { TagInput } from '../../components/TagInput';
 import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
 import { COUNTRIES, parsePhoneNumber } from '../../constants/countries';
 
+// Module-level cache — survives unmount when navigating to a contact card and back
+type LeadListCache = {
+    searchTerm: string;
+    currentPage: number;
+    pageSize: number;
+    currentMode: 'all' | 'followup' | 'smartlist' | 'apileads';
+    activeSmartListId: string | null;
+    nameFilter: string;
+    phoneFilter: string;
+    countryCodeFilter: string;
+    statusFilter: string;
+    leadTypeFilter: string;
+    leadOriginFilter: string;
+    placeFilter: string;
+    designationFilter: string;
+    tagFilterTags: string[];
+    dateFilter: string;
+    assignedToFilter: string;
+    paymentStatusFilter: string;
+    intentFilter: string;
+    brandFilter: string;
+    modelFilter: string;
+    fuelTypeFilter: string;
+    yearFilter: string;
+    kmDrivenFilter: string;
+    kmDrivenOp: 'eq' | 'gt' | 'lt';
+    amountFilter: string;
+    amountOp: 'eq' | 'gt' | 'lt';
+    bookMethodFilter: string;
+};
+let leadListCache: LeadListCache | null = null;
+
 interface LeadListProps {
     initialFilter?: 'all' | 'followup';
 }
 
+const formatLocalDate = (date: Date) => {
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+};
+
+const getMinFollowupDate = () => {
+    const now = new Date();
+    const cutoff = new Date();
+    cutoff.setHours(17, 30, 0, 0); // 5:30 PM
+    
+    if (now > cutoff) {
+        const tomorrow = new Date();
+        tomorrow.setDate(now.getDate() + 1);
+        return formatLocalDate(tomorrow);
+    } else {
+        return formatLocalDate(now);
+    }
+};
+
 export function LeadList({ initialFilter = 'all' }: LeadListProps) {
-    const { leads, apiLeads, addSmartList, users, deleteApiLead, approveApiLead, updateApiLead, bulkDeleteLeads, bulkAssignLeads, bulkUpdateLeads, bulkUpdatePhonePrefix, smartLists, deleteSmartList, tags, addTag, loading, error, fetchLeads, totalLeads, clearLeads } = useLeads();
+    const { leads, apiLeads, addSmartList, users, deleteApiLead, approveApiLead, updateApiLead, bulkDeleteLeads, bulkAssignLeads, bulkUpdateLeads, bulkUpdatePhonePrefix, smartLists, deleteSmartList, tags, addTag, loading, error, fetchLeads, totalLeads } = useLeads();
     const { isAdmin } = useAuth();
 
-    const [currentMode, setCurrentMode] = useState<'all' | 'followup' | 'smartlist' | 'apileads'>(initialFilter);
-    const [activeSmartListId, setActiveSmartListId] = useState<string | null>(null);
+    const [currentMode, setCurrentMode] = useState<'all' | 'followup' | 'smartlist' | 'apileads'>(
+        leadListCache?.currentMode ?? initialFilter
+    );
+    const [activeSmartListId, setActiveSmartListId] = useState<string | null>(
+        leadListCache?.activeSmartListId ?? null
+    );
 
     // Selection state
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
-    useEffect(() => {
-        return () => {
-            clearLeads();
-        };
-    }, []);
-
     // Filter states (these are the ACTIVE filters used for calculation)
-    const [searchTerm, setSearchTerm] = useState('');
+    const [searchTerm, setSearchTerm] = useState(leadListCache?.searchTerm ?? '');
     const [activeFilters] = useState({
         name: '', phone: '', countryCode: '', status: 'all', leadType: 'all', leadOrigin: 'all',
         place: '', designation: '', tags: [] as string[], date: '',
@@ -47,28 +98,29 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
 
     // Individual states for backward compatibility if needed, but we'll try to refactor to use activeFilters
     // Actually, to minimize changes to filteredLeads, I'll keep the individual states but only update them on Apply.
-    const [nameFilter, setNameFilter] = useState('');
-    const [phoneFilter, setPhoneFilter] = useState('');
-    const [countryCodeFilter, setCountryCodeFilter] = useState('');
-    const [statusFilter, setStatusFilter] = useState('all');
-    const [leadTypeFilter, setLeadTypeFilter] = useState('all');
-    const [leadOriginFilter, setLeadOriginFilter] = useState('all');
-    const [placeFilter, setPlaceFilter] = useState('');
-    const [designationFilter, setDesignationFilter] = useState('');
-    const [tagFilterTags, setTagFilterTags] = useState<string[]>([]);
-    const [dateFilter, setDateFilter] = useState('');
-    const [assignedToFilter, setAssignedToFilter] = useState('all');
-    const [paymentStatusFilter, setPaymentStatusFilter] = useState('all');
-    const [intentFilter, setIntentFilter] = useState('all');
-    const [brandFilter, setBrandFilter] = useState('');
-    const [modelFilter, setModelFilter] = useState('');
-    const [fuelTypeFilter, setFuelTypeFilter] = useState('all');
-    const [yearFilter, setYearFilter] = useState('');
-    const [kmDrivenFilter, setKmDrivenFilter] = useState('');
-    const [kmDrivenOp, setKmDrivenOp] = useState<'eq' | 'gt' | 'lt'>('eq');
-    const [amountFilter, setAmountFilter] = useState('');
-    const [amountOp, setAmountOp] = useState<'eq' | 'gt' | 'lt'>('eq');
-    const [bookMethodFilter, setBookMethodFilter] = useState('all');
+    const c = leadListCache;
+    const [nameFilter, setNameFilter] = useState(c?.nameFilter ?? '');
+    const [phoneFilter, setPhoneFilter] = useState(c?.phoneFilter ?? '');
+    const [countryCodeFilter, setCountryCodeFilter] = useState(c?.countryCodeFilter ?? '');
+    const [statusFilter, setStatusFilter] = useState(c?.statusFilter ?? 'all');
+    const [leadTypeFilter, setLeadTypeFilter] = useState(c?.leadTypeFilter ?? 'all');
+    const [leadOriginFilter, setLeadOriginFilter] = useState(c?.leadOriginFilter ?? 'all');
+    const [placeFilter, setPlaceFilter] = useState(c?.placeFilter ?? '');
+    const [designationFilter, setDesignationFilter] = useState(c?.designationFilter ?? '');
+    const [tagFilterTags, setTagFilterTags] = useState<string[]>(c?.tagFilterTags ?? []);
+    const [dateFilter, setDateFilter] = useState(c?.dateFilter ?? '');
+    const [assignedToFilter, setAssignedToFilter] = useState(c?.assignedToFilter ?? 'all');
+    const [paymentStatusFilter, setPaymentStatusFilter] = useState(c?.paymentStatusFilter ?? 'all');
+    const [intentFilter, setIntentFilter] = useState(c?.intentFilter ?? 'all');
+    const [brandFilter, setBrandFilter] = useState(c?.brandFilter ?? '');
+    const [modelFilter, setModelFilter] = useState(c?.modelFilter ?? '');
+    const [fuelTypeFilter, setFuelTypeFilter] = useState(c?.fuelTypeFilter ?? 'all');
+    const [yearFilter, setYearFilter] = useState(c?.yearFilter ?? '');
+    const [kmDrivenFilter, setKmDrivenFilter] = useState(c?.kmDrivenFilter ?? '');
+    const [kmDrivenOp, setKmDrivenOp] = useState<'eq' | 'gt' | 'lt'>(c?.kmDrivenOp ?? 'eq');
+    const [amountFilter, setAmountFilter] = useState(c?.amountFilter ?? '');
+    const [amountOp, setAmountOp] = useState<'eq' | 'gt' | 'lt'>(c?.amountOp ?? 'eq');
+    const [bookMethodFilter, setBookMethodFilter] = useState(c?.bookMethodFilter ?? 'all');
 
     // Focus states for suggestions
     const [nameFocused, setNameFocused] = useState(false);
@@ -194,8 +246,8 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
         );
     }, [
         nameFilter, phoneFilter, countryCodeFilter, statusFilter, leadTypeFilter, leadOriginFilter,
-        placeFilter, designationFilter, tagFilterTags, dateFilter, assignedToFilter,
-        paymentStatusFilter, intentFilter, brandFilter, modelFilter, fuelTypeFilter,
+        placeFilter, designationFilter, tagFilterTags, dateFilter,
+        assignedToFilter, paymentStatusFilter, intentFilter, brandFilter, modelFilter, fuelTypeFilter,
         yearFilter, kmDrivenFilter, amountFilter, bookMethodFilter
     ]);
 
@@ -263,9 +315,42 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
     };
 
     // Pagination state
-    const [currentPage, setCurrentPage] = useState(1);
-    const [pageSize, setPageSize] = useState(20);
-    const [debouncedSearch, setDebouncedSearch] = useState(searchTerm);
+    const [currentPage, setCurrentPage] = useState(c?.currentPage ?? 1);
+    const [pageSize, setPageSize] = useState(c?.pageSize ?? 20);
+    const [debouncedSearch, setDebouncedSearch] = useState(c?.searchTerm ?? searchTerm);
+
+    // Keep a single ref updated with all cacheable state so unmount can snapshot it cheaply
+    const cacheRef = useRef<LeadListCache>({
+        searchTerm, currentPage: c?.currentPage ?? 1, pageSize: c?.pageSize ?? 20,
+        currentMode, activeSmartListId,
+        nameFilter, phoneFilter, countryCodeFilter, statusFilter, leadTypeFilter,
+        leadOriginFilter, placeFilter, designationFilter, tagFilterTags, dateFilter,
+        assignedToFilter, paymentStatusFilter, intentFilter,
+        brandFilter, modelFilter, fuelTypeFilter, yearFilter, kmDrivenFilter, kmDrivenOp,
+        amountFilter, amountOp, bookMethodFilter,
+    });
+    useEffect(() => {
+        cacheRef.current = {
+            searchTerm, currentPage, pageSize, currentMode, activeSmartListId,
+            nameFilter, phoneFilter, countryCodeFilter, statusFilter, leadTypeFilter,
+            leadOriginFilter, placeFilter, designationFilter, tagFilterTags, dateFilter,
+            assignedToFilter, paymentStatusFilter, intentFilter,
+            brandFilter, modelFilter, fuelTypeFilter, yearFilter, kmDrivenFilter, kmDrivenOp,
+            amountFilter, amountOp, bookMethodFilter,
+        };
+    }, [
+        searchTerm, currentPage, pageSize, currentMode, activeSmartListId,
+        nameFilter, phoneFilter, countryCodeFilter, statusFilter, leadTypeFilter,
+        leadOriginFilter, placeFilter, designationFilter, tagFilterTags, dateFilter,
+        assignedToFilter, paymentStatusFilter, intentFilter,
+        brandFilter, modelFilter, fuelTypeFilter, yearFilter, kmDrivenFilter, kmDrivenOp,
+        amountFilter, amountOp, bookMethodFilter,
+    ]);
+
+    // Save to module-level cache on unmount so state survives navigation to a contact card and back
+    useEffect(() => {
+        return () => { leadListCache = cacheRef.current; };
+    }, []);
 
     useEffect(() => {
         const timer = setTimeout(() => setDebouncedSearch(searchTerm), 500);
@@ -799,10 +884,24 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                             <div className="flex items-center gap-2 p-2 bg-white rounded-lg border border-indigo-100 animate-fadeIn">
                                 <input
                                     type="date"
+                                    min={getMinFollowupDate()}
                                     className="flex-1 text-sm border-0 focus:ring-0 p-2 outline-none"
                                     onChange={async (e) => {
                                         const date = e.target.value;
                                         if (date) {
+                                            const minDate = getMinFollowupDate();
+                                            if (date < minDate) {
+                                                const now = new Date();
+                                                const cutoff = new Date();
+                                                cutoff.setHours(17, 30, 0, 0);
+                                                if (now > cutoff && date === formatLocalDate(now)) {
+                                                    alert('Cannot schedule same-day follow-up after 5:30 PM');
+                                                } else {
+                                                    alert('Cannot select a past date for follow-up');
+                                                }
+                                                e.target.value = '';
+                                                return;
+                                            }
                                             if (!window.confirm(`Are you sure you want to update the follow-up date for ${selectedIds.length} contact(s)?`)) {
                                                 e.target.value = '';
                                                 return;

@@ -363,7 +363,11 @@ export const getLeads = async (req, res, next) => {
             amount,
             amountValue,
             amountOp,
-            date
+            date,
+            followupDate,
+            followupCompletedDate,
+            followupNotRespondedDate,
+            followupMissedDate
         } = req.query;
 
         // Build matching query
@@ -524,6 +528,64 @@ export const getLeads = async (req, res, next) => {
             }
         }
 
+        // Follow-up Date matching (contacts with follow-up scheduled on given date)
+        if (followupDate) {
+            const start = new Date(followupDate);
+            if (!isNaN(start.getTime())) {
+                const end = new Date(start);
+                end.setDate(end.getDate() + 1);
+                queryObj.followupDate = {
+                    $gte: start,
+                    $lt: end
+                };
+            }
+        }
+
+        // Completed follow-ups by date (followupHistory.result = 'responded' on that day)
+        if (followupCompletedDate) {
+            const start = new Date(followupCompletedDate);
+            if (!isNaN(start.getTime())) {
+                const end = new Date(start);
+                end.setDate(end.getDate() + 1);
+                queryObj.followupHistory = {
+                    $elemMatch: {
+                        result: 'responded',
+                        scheduledDate: { $gte: start, $lt: end }
+                    }
+                };
+            }
+        }
+
+        // Not responded follow-ups by date (followupHistory.result = 'not_responded' on that day)
+        if (followupNotRespondedDate) {
+            const start = new Date(followupNotRespondedDate);
+            if (!isNaN(start.getTime())) {
+                const end = new Date(start);
+                end.setDate(end.getDate() + 1);
+                queryObj.followupHistory = {
+                    $elemMatch: {
+                        result: 'not_responded',
+                        scheduledDate: { $gte: start, $lt: end }
+                    }
+                };
+            }
+        }
+
+        // Missed follow-ups by date (followupHistory.wasMissed = true on that day)
+        if (followupMissedDate) {
+            const start = new Date(followupMissedDate);
+            if (!isNaN(start.getTime())) {
+                const end = new Date(start);
+                end.setDate(end.getDate() + 1);
+                queryObj.followupHistory = {
+                    $elemMatch: {
+                        wasMissed: true,
+                        scheduledDate: { $gte: start, $lt: end }
+                    }
+                };
+            }
+        }
+
         // Numeric fields converter function helper
         const convertToDouble = (expr) => ({
             $convert: {
@@ -658,9 +720,16 @@ export const getLeads = async (req, res, next) => {
 
 export const getLeadsStats = async (req, res, next) => {
     try {
-        const { search } = req.query;
+        const { search, assignedTo } = req.query;
         const searchRegex = search ? new RegExp(search.trim(), 'i') : null;
         const matchQuery = searchRegex ? { $or: [{ name: searchRegex }, { phone: searchRegex }] } : {};
+        if (assignedTo && assignedTo !== 'all') {
+            if (assignedTo === 'unassigned') {
+                matchQuery.assignedTo = { $exists: false };
+            } else {
+                matchQuery.assignedTo = assignedTo;
+            }
+        }
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -693,20 +762,20 @@ export const getLeadsStats = async (req, res, next) => {
                 },
                 {
                     $project: {
-                        isToday: {
+                        isTodayPending: {
                             $and: [
                                 { $gte: ["$followupDate", today] },
                                 { $lt: ["$followupDate", tomorrow] }
                             ]
                         },
-                        isMissed: { $lt: ["$followupDate", today] }
+                        isPastMissed: { $lt: ["$followupDate", today] }
                     }
                 },
                 {
                     $group: {
                         _id: null,
-                        todayFollowups: { $sum: { $cond: ["$isToday", 1, 0] } },
-                        missedFollowups: { $sum: { $cond: ["$isMissed", 1, 0] } }
+                        todayPending: { $sum: { $cond: ["$isTodayPending", 1, 0] } },
+                        pastMissed: { $sum: { $cond: ["$isPastMissed", 1, 0] } }
                     }
                 }
             ]),
@@ -726,7 +795,7 @@ export const getLeadsStats = async (req, res, next) => {
                     $group: {
                         _id: "$assignedTo",
                         totalAssigned: { $sum: 1 },
-                        todayFollowups: {
+                        todayPending: {
                             $sum: {
                                 $cond: [
                                     {
@@ -743,7 +812,7 @@ export const getLeadsStats = async (req, res, next) => {
                                 ]
                             }
                         },
-                        missedFollowups: {
+                        pastMissed: {
                             $sum: {
                                 $cond: [
                                     {
@@ -764,6 +833,14 @@ export const getLeadsStats = async (req, res, next) => {
             ])
         ]);
 
+        // Apply the 6 PM rule: after 6 PM, today's pending followups are classified as missed
+        const now = new Date();
+        const isAfter6PM = now.getHours() >= 18;
+
+        const rawFollowupStats = followupStats[0] || { todayPending: 0, pastMissed: 0 };
+        const adjustedTodayFollowups = isAfter6PM ? 0 : rawFollowupStats.todayPending;
+        const adjustedMissedFollowups = rawFollowupStats.pastMissed + (isAfter6PM ? rawFollowupStats.todayPending : 0);
+
         // Map aggregated performance onto user identities safely
         const User = mongoose.model('User');
         const allUsers = await User.find({}, 'username role').lean();
@@ -775,20 +852,21 @@ export const getLeadsStats = async (req, res, next) => {
         });
 
         const userPerformance = allUsers.map(u => {
-            const p = performanceMap[String(u._id)] || { totalAssigned: 0, todayFollowups: 0, missedFollowups: 0 };
+            const p = performanceMap[String(u._id)] || { totalAssigned: 0, todayPending: 0, pastMissed: 0 };
             return {
                 _id: u._id,
                 username: u.username,
                 role: u.role,
                 totalAssigned: p.totalAssigned,
-                todayFollowups: p.todayFollowups,
-                missedFollowups: p.missedFollowups
+                todayFollowups: isAfter6PM ? 0 : (p.todayPending || 0),
+                missedFollowups: (p.pastMissed || 0) + (isAfter6PM ? (p.todayPending || 0) : 0)
             };
         });
 
         const stats = {
             ...(counts[0] || { hot: 0, warm: 0, cold: 0, total: 0, unassigned: 0, advancePayment: 0 }),
-            ...(followupStats[0] || { todayFollowups: 0, missedFollowups: 0 }),
+            todayFollowups: adjustedTodayFollowups,
+            missedFollowups: adjustedMissedFollowups,
             originBreakdown: originBreakdown.reduce((acc, curr) => ({ ...acc, [curr.origin]: curr.count }), {}),
             statusBreakdown: statusBreakdown.reduce((acc, curr) => ({ ...acc, [curr.status]: curr.count }), {}),
             userPerformance

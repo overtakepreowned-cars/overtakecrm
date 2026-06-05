@@ -116,6 +116,10 @@ export interface LeadFilter {
     amountValue?: string;
     amountOp?: 'eq' | 'gt' | 'lt';
     date?: string;
+    followupDate?: string;
+    followupCompletedDate?: string;
+    followupNotRespondedDate?: string;
+    followupMissedDate?: string;
 }
 export interface ApiLeadEditData {
     name?: string;

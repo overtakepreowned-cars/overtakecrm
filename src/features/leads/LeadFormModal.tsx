@@ -6,6 +6,27 @@ import { TagInput } from '../../components/TagInput';
 import { format } from 'date-fns';
 import { COUNTRIES, DEFAULT_COUNTRY, parsePhoneNumber } from '../../constants/countries';
 
+const formatLocalDate = (date: Date) => {
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+};
+
+const getMinFollowupDate = () => {
+    const now = new Date();
+    const cutoff = new Date();
+    cutoff.setHours(17, 30, 0, 0); // 5:30 PM
+    
+    if (now > cutoff) {
+        const tomorrow = new Date();
+        tomorrow.setDate(now.getDate() + 1);
+        return formatLocalDate(tomorrow);
+    } else {
+        return formatLocalDate(now);
+    }
+};
+
 interface LeadFormModalProps {
     onClose: () => void;
     initialData?: Lead;
@@ -191,6 +212,21 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
                 const isDuplicate = leads.some(l => l.phone === fullPhone && l._id !== initialData?._id);
                 if (isDuplicate) {
                     newErrors.phone = `A contact with phone ${fullPhone} already exists`;
+                }
+            }
+        }
+
+        if (formData.followupDate) {
+            const dateStr = formData.followupDate.split('T')[0];
+            const minDate = getMinFollowupDate();
+            if (dateStr < minDate) {
+                const now = new Date();
+                const cutoff = new Date();
+                cutoff.setHours(17, 30, 0, 0);
+                if (now > cutoff && dateStr === formatLocalDate(now)) {
+                    newErrors.followupDate = 'Cannot schedule same-day follow-up after 5:30 PM';
+                } else {
+                    newErrors.followupDate = 'Cannot select a past date';
                 }
             }
         }
@@ -830,7 +866,23 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
                 <div className="flex flex-col gap-3">
                     <label className="mb-1.5 block text-[10px] font-bold text-gray-700 uppercase tracking-widest">Follow-up Date</label>
-                    <input type="date" name="followupDate" value={formData.followupDate ? formData.followupDate.split('T')[0] : ''} onChange={handleChange} className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all" />
+                    <input
+                        type="date"
+                        name="followupDate"
+                        min={getMinFollowupDate()}
+                        value={formData.followupDate ? formData.followupDate.split('T')[0] : ''}
+                        onChange={handleChange}
+                        className={`w-full rounded-xl border px-4 py-3 text-sm transition-all focus:outline-none focus:ring-4 ${
+                            errors.followupDate
+                                ? 'border-red-500 bg-red-50 focus:border-red-500 focus:ring-red-500/10'
+                                : 'border-gray-200 focus:border-indigo-500 focus:ring-indigo-500/10'
+                        }`}
+                    />
+                    {errors.followupDate && (
+                        <span className="mt-1 text-[11px] font-bold text-red-600 bg-red-50 px-2.5 py-1.5 rounded-lg border border-red-100 flex items-center gap-1.5">
+                            <AlertCircle size={12} /> {errors.followupDate}
+                        </span>
+                    )}
                 </div>
                 <div className="flex flex-col gap-3">
                     <label className="mb-1.5 block text-[10px] font-bold text-gray-700 uppercase tracking-widest">Follow-up Notes</label>
