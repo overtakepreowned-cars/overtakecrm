@@ -161,6 +161,12 @@ export function LeadPage() {
         return isValid(date) ? format(date, 'MMM d, yyyy') : 'N/A';
     };
 
+    const formatDateTime = (dateStr?: string) => {
+        if (!dateStr) return 'N/A';
+        const date = new Date(dateStr);
+        return isValid(date) ? format(date, 'MMM d, yyyy, h:mm a') : 'N/A';
+    };
+
     const isMissed = (dateStr?: string) => {
         if (!dateStr) return false;
         try {
@@ -353,7 +359,7 @@ export function LeadPage() {
                                 <div className="w-full h-px bg-gray-100"></div>
                                 <div className="flex flex-col gap-1">
                                     <span className="text-[10px] font-bold uppercase tracking-widest text-gray-700">Created Date</span>
-                                    <span className="font-bold text-sm text-gray-900">{formatDate(lead.createdAt)}</span>
+                                    <span className="font-bold text-sm text-gray-900">{formatDateTime(lead.createdAt)}</span>
                                 </div>
                             </div>
                         </div>
@@ -659,7 +665,7 @@ export function LeadPage() {
                                                                 <span>{formatDate(record.newScheduledDate)}</span>
                                                             </div>
                                                             <div className="flex items-center justify-between">
-                                                                <span className="text-[10px] text-gray-700 italic">Changed on: {formatDate(record.completedDate)}</span>
+                                                                <span className="text-[10px] text-gray-700 italic">Changed on: {formatDateTime(record.completedDate)}</span>
                                                                 {record.userId && (
                                                                     <span className="text-[10px] text-indigo-400 font-medium italic">by {users.find(u => u._id === record.userId)?.username || 'Unknown'}</span>
                                                                 )}
@@ -667,7 +673,7 @@ export function LeadPage() {
                                                         </div>
                                                     ) : (
                                                         <div className="flex items-center justify-between">
-                                                            <span className="font-bold text-gray-900">Completed on: {formatDate(record.completedDate)}</span>
+                                                            <span className="font-bold text-gray-900">Completed on: {formatDateTime(record.completedDate)}</span>
                                                             {record.userId && (
                                                                 <span className="text-[10px] text-indigo-400 font-medium italic">by {users.find(u => u._id === record.userId)?.username || 'Unknown'}</span>
                                                             )}
@@ -711,7 +717,7 @@ export function LeadPage() {
                                             <div className="absolute left-[-5px] top-1 h-2 w-2 rounded-full bg-[#1B1B19] ring-4 ring-white"></div>
                                             <div className="flex flex-col">
                                                 <span className="font-bold text-gray-900 text-sm leading-none">{record.userId?.username || 'Unknown User'}</span>
-                                                <span className="text-[10px] font-bold text-gray-700 uppercase tracking-widest mt-1.5">{formatDate(record.assignedAt)}</span>
+                                                <span className="text-[10px] font-bold text-gray-700 uppercase tracking-widest mt-1.5">{formatDateTime(record.assignedAt)}</span>
                                             </div>
                                         </div>
                                     ))}

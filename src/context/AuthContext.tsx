@@ -12,24 +12,42 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const isTokenExpired = (token: string): boolean => {
+    try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        return payload.exp * 1000 < Date.now();
+    } catch {
+        return true;
+    }
+};
+
+const clearStoredAuth = () => {
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('authUser');
+};
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(() => {
         if (typeof window !== 'undefined') {
+            const storedToken = localStorage.getItem('authToken');
             const storedUser = localStorage.getItem('authUser');
-            if (storedUser) {
+            if (storedToken && storedUser && !isTokenExpired(storedToken)) {
                 try {
                     return JSON.parse(storedUser);
                 } catch {
+                    clearStoredAuth();
                     return null;
                 }
             }
+            clearStoredAuth();
         }
         return null;
     });
 
     const [token, setToken] = useState<string | null>(() => {
         if (typeof window !== 'undefined') {
-            return localStorage.getItem('authToken');
+            const storedToken = localStorage.getItem('authToken');
+            return storedToken && !isTokenExpired(storedToken) ? storedToken : null;
         }
         return null;
     });
@@ -78,10 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     const logout = () => {
-        if (typeof window !== 'undefined') {
-            localStorage.removeItem('authToken');
-            localStorage.removeItem('authUser');
-        }
+        clearStoredAuth();
         setUser(null);
         setToken(null);
     };
