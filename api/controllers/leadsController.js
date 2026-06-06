@@ -727,7 +727,9 @@ export const getLeadsStats = async (req, res, next) => {
             if (assignedTo === 'unassigned') {
                 matchQuery.assignedTo = { $exists: false };
             } else {
-                matchQuery.assignedTo = assignedTo;
+                matchQuery.assignedTo = mongoose.Types.ObjectId.isValid(assignedTo)
+                    ? new mongoose.Types.ObjectId(assignedTo)
+                    : assignedTo;
             }
         }
 
