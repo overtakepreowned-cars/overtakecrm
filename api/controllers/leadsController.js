@@ -888,6 +888,8 @@ export const getWorkingReport = async (req, res, next) => {
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
 
         const isToday = selectedDate.getTime() === today.getTime();
         const now = new Date();
@@ -968,7 +970,7 @@ export const getWorkingReport = async (req, res, next) => {
             Lead.aggregate([
                 {
                     $match: {
-                        followupDate: { $gt: today },
+                        followupDate: { $gte: tomorrow },
                         status: { $nin: ['booking_confirmed', 'deal_closed'] }
                     }
                 },
