@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Save, X, Plus, Trash2, Car, AlertCircle, Tag, Edit3 } from 'lucide-react';
+import { Save, X, Plus, Trash2, Car, AlertCircle, Tag, Edit3, CheckCircle2 } from 'lucide-react';
 import { useLeads } from '../../context/LeadsContext';
 import { Lead, CarDetail, VehicleInfo } from '../../types';
 import { TagInput } from '../../components/TagInput';
@@ -108,6 +108,7 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [focusedField, setFocusedField] = useState<string | null>(null);
     const [newGeneralNote, setNewGeneralNote] = useState('');
+    const [isSuccess, setIsSuccess] = useState(false);
     const [newFollowupNote, setNewFollowupNote] = useState('');
 
     const handleAddNote = () => {
@@ -190,6 +191,10 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
     const validateForm = () => {
         const newErrors: Record<string, string> = {};
         if (!formData.name?.trim()) newErrors.name = 'Name is required';
+
+        if (!initialData && !formData.assignedTo) {
+            newErrors.assignedTo = 'Sales representative assignment is required';
+        }
 
         const { countryCode, localPhone } = phoneData;
         const country = COUNTRIES.find(c => c.code === countryCode) || DEFAULT_COUNTRY;
@@ -315,10 +320,14 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
             } else {
                 updateLead(initialData._id!, finalData);
             }
+            onClose();
         } else {
             addLead(finalData);
+            setIsSuccess(true);
+            setTimeout(() => {
+                onClose();
+            }, 1500);
         }
-        onClose();
     };
 
     const isEdit = !!initialData;
@@ -467,18 +476,22 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
                     </div>
                 )}
                 <div>
-                    <label className="mb-1.5 block text-[10px] font-bold text-gray-700 uppercase tracking-widest">Assign To</label>
+                    <label className="mb-1.5 block text-[10px] font-bold text-gray-700 uppercase tracking-widest">
+                        Assign To {(!initialData) && <span className="text-red-500">*</span>}
+                    </label>
                     <select
                         name="assignedTo"
-                        value={typeof formData.assignedTo === 'object' ? (formData.assignedTo as { _id: string })._id : formData.assignedTo}
+                        value={typeof formData.assignedTo === 'object' ? (formData.assignedTo as { _id: string })._id : (formData.assignedTo || '')}
                         onChange={handleChange}
-                        className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-medium"
+                        required={!initialData}
+                        className={`w-full rounded-xl border px-4 py-3 text-sm focus:outline-none focus:ring-4 transition-all font-medium ${errors.assignedTo ? 'border-red-300 bg-red-50 focus:border-red-500 focus:ring-red-500/10' : 'border-gray-200 bg-white focus:border-indigo-500 focus:ring-indigo-500/10'}`}
                     >
                         <option value="">Select User</option>
                         {users.map(user => (
                             <option key={user._id} value={user._id}>{user.username}</option>
                         ))}
                     </select>
+                    {errors.assignedTo && <p className="mt-1 text-[10px] text-red-500 font-bold">{errors.assignedTo}</p>}
                 </div>
                 <div>
                     <label className="mb-1.5 block text-[10px] font-bold text-gray-700 uppercase tracking-widest">Payment Status</label>
@@ -960,11 +973,17 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
     }
 
     return (
-        <div
-            className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 backdrop-blur-[2px] p-4"
-            onClick={(e) => e.target === e.currentTarget && onClose()}
-        >
-            <div className="flex w-full max-w-[95%] max-h-[95vh] flex-col overflow-hidden rounded-2xl bg-white shadow-xl animate-fadeIn">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 backdrop-blur-sm bg-black/40 animate-fadeIn">
+            <div className="w-full max-w-4xl bg-[#FAFAFA] rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-full border border-gray-100 relative">
+                {isSuccess && (
+                    <div className="absolute inset-0 z-50 bg-white/95 backdrop-blur-md flex flex-col items-center justify-center animate-fadeIn rounded-3xl">
+                        <div className="h-20 w-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-6 shadow-lg shadow-emerald-200 animate-bounce">
+                            <CheckCircle2 size={40} />
+                        </div>
+                        <h2 className="text-2xl font-black text-gray-900 tracking-tight">Contact Created!</h2>
+                        <p className="text-gray-500 mt-2 font-medium">Loading contact into the list...</p>
+                    </div>
+                )}
                 <div className="flex items-center justify-between border-b border-gray-100 px-6 py-5">
                     <h2 className="text-xl font-bold text-gray-900">{isEdit ? 'Edit Contact' : 'Add New Contact'}</h2>
                     <button onClick={onClose} className="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-900 shadow-sm border">
