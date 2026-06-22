@@ -63,6 +63,7 @@ export function WorkingReport() {
                         <thead>
                             <tr className="text-[10px] font-bold uppercase tracking-widest text-gray-400 border-b border-gray-100">
                                 <th className="px-6 py-4">Sales Representative</th>
+                                <th className="px-6 py-4 text-center">Total Assigned</th>
                                 <th className="px-6 py-4 text-center">Total Scheduled</th>
                                 <th className="px-6 py-4 text-center">Completed</th>
                                 <th className="px-6 py-4 text-center">Not Responded</th>
@@ -83,6 +84,7 @@ export function WorkingReport() {
                                             </div>
                                         </div>
                                     </td>
+                                    <td className="px-6 py-4 text-center font-bold text-indigo-600">{user.assigned || 0}</td>
                                     <td className="px-6 py-4 text-center font-bold text-gray-700">{user.total}</td>
                                     <td className="px-6 py-4 text-center font-bold text-emerald-600">{user.completed}</td>
                                     <td className="px-6 py-4 text-center font-bold text-orange-600">{user.noResponse}</td>
@@ -107,6 +109,10 @@ export function WorkingReport() {
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-2">
+                                <div className="bg-indigo-50 p-2 rounded-lg border border-indigo-100 col-span-2 flex items-center justify-between">
+                                    <span className="text-[10px] uppercase text-indigo-600 font-bold block mb-1">Total Assigned</span>
+                                    <span className="text-sm font-bold text-indigo-700">{user.assigned || 0}</span>
+                                </div>
                                 <div className="bg-gray-50 p-2 rounded-lg border border-gray-100">
                                     <span className="text-[10px] uppercase text-gray-400 font-bold block mb-1">Scheduled</span>
                                     <span className="text-sm font-bold text-gray-700">{user.total}</span>
@@ -161,6 +167,7 @@ export function WorkingReport() {
                         <thead>
                             <tr className="text-[10px] font-bold uppercase tracking-widest text-gray-400 border-b border-gray-100">
                                 <th className="px-6 py-4">Sales Representative</th>
+                                <th className="px-6 py-4 text-center">Assigned</th>
                                 <th className="px-6 py-4 text-center">Scheduled</th>
                                 <th className="px-6 py-4 text-center">Completed</th>
                                 <th className="px-6 py-4 text-center">Not Responded</th>
@@ -181,6 +188,7 @@ export function WorkingReport() {
                                             </div>
                                         </div>
                                     </td>
+                                    <td className="px-6 py-4 text-center font-bold text-indigo-600">{user.assigned || 0}</td>
                                     <td className="px-6 py-4 text-center font-bold text-gray-700">{user.scheduled}</td>
                                     <td className="px-6 py-4 text-center font-bold text-emerald-600">{user.completed}</td>
                                     <td className="px-6 py-4 text-center font-bold text-orange-600">{user.noResponse}</td>
@@ -205,6 +213,10 @@ export function WorkingReport() {
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-2">
+                                <div className="bg-indigo-50 p-2 rounded-lg border border-indigo-100 col-span-2 flex items-center justify-between">
+                                    <span className="text-[10px] uppercase text-indigo-600 font-bold block mb-1">Assigned</span>
+                                    <span className="text-sm font-bold text-indigo-700">{user.assigned || 0}</span>
+                                </div>
                                 <div className="bg-gray-50 p-2 rounded-lg border border-gray-100">
                                     <span className="text-[10px] uppercase text-gray-400 font-bold block mb-1">Scheduled</span>
                                     <span className="text-sm font-bold text-gray-700">{user.scheduled}</span>

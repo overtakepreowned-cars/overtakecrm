@@ -196,15 +196,15 @@ export function LeadFormModal({ onClose, initialData, inline }: LeadFormModalPro
         
         if (!localPhone.trim()) {
             newErrors.phone = 'Phone is required';
+        } else if (!countryCode) {
+            newErrors.phone = 'Country code is required';
         } else {
-            const isValid = country.code === '' 
-                ? (localPhone.length >= 5 && localPhone.length <= 15) // Broad range for 'None'
-                : (Array.isArray(country.length) 
-                    ? country.length.includes(localPhone.length) 
-                    : localPhone.length === country.length);
+            const isValid = Array.isArray(country.length) 
+                ? country.length.includes(localPhone.length) 
+                : localPhone.length === country.length;
             
             if (!isValid) {
-                const expected = country.code === '' ? '5 to 15' : (Array.isArray(country.length) ? country.length.join(' or ') : country.length);
+                const expected = Array.isArray(country.length) ? country.length.join(' or ') : country.length;
                 newErrors.phone = `Phone must be ${expected} digits for ${country.name}`;
             } else {
                 // Check for duplicate phone

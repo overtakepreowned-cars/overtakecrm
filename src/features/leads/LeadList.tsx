@@ -280,7 +280,20 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
         onConfirm: () => { }
     });
 
+    const [approveModal, setApproveModal] = useState<{
+        isOpen: boolean;
+        title: string;
+        message: string;
+        onConfirm: () => void;
+    }>({
+        isOpen: false,
+        title: '',
+        message: '',
+        onConfirm: () => { }
+    });
+
     const closeDeleteModal = () => setDeleteModal(prev => ({ ...prev, isOpen: false }));
+    const closeApproveModal = () => setApproveModal(prev => ({ ...prev, isOpen: false }));
 
     const startEditApiLead = (lead: Lead) => {
         setEditingApiLeadId(lead._id);
@@ -720,23 +733,7 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                 >
                                     <Trash2 size={16} /> Delete
                                 </button>
-                                {currentMode === 'apileads' && (
-                                    <button
-                                        onClick={async () => {
-                                            const hasExisting = selectedIds.some(id => apiLeads.find(l => l._id === id)?.existingInCrm);
-                                            const msg = hasExisting
-                                                ? `Process ${selectedIds.length} lead(s)? Returning customers will have their data merged into existing contacts.`
-                                                : `Approve and move ${selectedIds.length} leads to CRM?`;
-                                            if (window.confirm(msg)) {
-                                                await Promise.all(selectedIds.map(id => approveApiLead(id)));
-                                                setSelectedIds([]);
-                                            }
-                                        }}
-                                        className="flex items-center gap-2 px-3 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-sm font-bold hover:bg-emerald-100 transition-all border border-emerald-200"
-                                    >
-                                        <CheckCircle2 size={16} /> Add to CRM
-                                    </button>
-                                )}
+
                             </div>
                         ) : (
                             hasActiveFilters && currentMode !== 'apileads' && (
@@ -1329,9 +1326,14 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
                                 const msg = isExisting
                                     ? 'This contact already exists in CRM. New car details and notes will be merged into them. Continue?'
                                     : 'Approve this lead and add to CRM?';
-                                if (window.confirm(msg)) {
-                                    approveApiLead(lead._id!);
-                                }
+                                setApproveModal({
+                                    isOpen: true,
+                                    title: isExisting ? 'Merge Contact?' : 'Add to CRM?',
+                                    message: msg,
+                                    onConfirm: () => {
+                                        approveApiLead(lead._id!);
+                                    }
+                                });
                             }}
                             selected={selectedIds.includes(lead._id!)}
                             onSelect={(checked: boolean) => handleSelectLead(lead._id!, checked)}
@@ -1479,6 +1481,19 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
             )}
 
             {/* Modals */}
+            {approveModal.isOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+                        <h3 className="text-lg font-bold text-gray-900 mb-2">{approveModal.title}</h3>
+                        <p className="text-gray-600 mb-6 text-sm">{approveModal.message}</p>
+                        <div className="flex justify-end gap-3">
+                            <button onClick={closeApproveModal} className="px-4 py-2 text-sm font-bold text-gray-500 hover:text-gray-700 transition-colors">Cancel</button>
+                            <button onClick={() => { approveModal.onConfirm(); closeApproveModal(); }} className="px-6 py-2 bg-emerald-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition-all">Confirm</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {isSmartListModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
                     <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
@@ -1516,6 +1531,34 @@ export function LeadList({ initialFilter = 'all' }: LeadListProps) {
 
 const ApiLeadCard = memo(({ lead, index, isEditing, editData, editFocus, setEditData, setEditFocus, availablePlaces, availableDesignations, availableBrandNames, availableModelNames, users, onStartEdit, onCancelEdit, onSaveEdit, onDelete, onApprove, selected, onSelect, onNavigate }: any) => {
     const isExisting = lead.existingInCrm === true;
+
+    const phoneVal = lead.phone || '';
+    const { countryCode, localNumber } = parsePhoneNumber(phoneVal);
+    const hasCC = !!countryCode;
+    const hasAssignee = !!(lead.assignedTo);
+
+    let phoneError = '';
+    if (hasCC) {
+        const country = COUNTRIES.find(c => c.code === countryCode);
+        if (!country) {
+            phoneError = 'Invalid country code';
+        } else {
+            const expected = country.length;
+            const len = localNumber.length;
+            if (Array.isArray(expected)) {
+                if (len < expected[0] || len > expected[1]) {
+                    phoneError = `Phone number must be between ${expected[0]} and ${expected[1]} digits for ${country.name}`;
+                }
+            } else {
+                if (len !== expected) {
+                    phoneError = `Phone number must be ${expected} digits for ${country.name}`;
+                }
+            }
+        }
+    }
+
+    const isValidForSaving = hasCC && hasAssignee && !phoneError;
+
     return (
         <div className={`bg-white rounded-xl border shadow-sm p-5 hover:shadow-md transition-shadow flex flex-col gap-4 h-fit relative ${isEditing ? 'border-indigo-300 ring-2 ring-indigo-100' : isExisting ? 'border-amber-200 ring-1 ring-amber-50' : 'border-gray-200'}`}>
             <div className="absolute top-4 right-4 flex items-center gap-3">
@@ -1755,6 +1798,35 @@ const ApiLeadCard = memo(({ lead, index, isEditing, editData, editFocus, setEdit
                         </div>
                     )}
 
+                    {!isValidForSaving && (
+                        <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs font-semibold flex flex-col gap-1.5 mt-2">
+                            {!hasCC && !hasAssignee && (
+                                <div className="flex items-center gap-1.5">
+                                    <AlertTriangle size={14} className="text-red-500 shrink-0" />
+                                    <span>Please add country code and assign a sales rep.</span>
+                                </div>
+                            )}
+                            {!hasCC && hasAssignee && (
+                                <div className="flex items-center gap-1.5">
+                                    <AlertTriangle size={14} className="text-red-500 shrink-0" />
+                                    <span>Please add country code.</span>
+                                </div>
+                            )}
+                            {hasCC && !hasAssignee && (
+                                <div className="flex items-center gap-1.5">
+                                    <AlertTriangle size={14} className="text-red-500 shrink-0" />
+                                    <span>Please assign a sales rep.</span>
+                                </div>
+                            )}
+                            {hasCC && hasAssignee && phoneError && (
+                                <div className="flex items-center gap-1.5">
+                                    <AlertTriangle size={14} className="text-red-500 shrink-0" />
+                                    <span>{phoneError}</span>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     <div className="flex flex-col gap-2 mt-auto pt-3 border-t border-gray-100">
                         <div className="flex gap-2">
                             <button
@@ -1764,11 +1836,21 @@ const ApiLeadCard = memo(({ lead, index, isEditing, editData, editFocus, setEdit
                                 Delete
                             </button>
                             <button
-                                onClick={onApprove}
-                                className={`flex-1 px-3 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-sm ${isExisting
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    if (isValidForSaving && onApprove) {
+                                        onApprove();
+                                    }
+                                }}
+                                disabled={!isValidForSaving}
+                                className={`flex-1 px-3 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-sm ${
+                                    !isValidForSaving
+                                        ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
+                                        : isExisting
                                         ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
                                         : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-100'
-                                    }`}
+                                }`}
                             >
                                 {isExisting ? (
                                     <><AlertTriangle size={14} /> Update in CRM</>

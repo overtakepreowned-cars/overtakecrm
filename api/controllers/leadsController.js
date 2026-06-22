@@ -901,7 +901,7 @@ export const getWorkingReport = async (req, res, next) => {
         const allUsers = await User.find({}, 'username role').lean();
 
         // 1. Calculate Cumulative Historical performance (scheduled BEFORE today)
-        const [historicalHistory, historicalPending, dailyHistory, dailyPending, upcomingLeads] = await Promise.all([
+        const [historicalHistory, historicalPending, dailyHistory, dailyPending, upcomingLeads, historicalAssigned, dailyAssigned] = await Promise.all([
             Lead.aggregate([
                 { $unwind: "$followupHistory" },
                 { 
@@ -982,6 +982,35 @@ export const getWorkingReport = async (req, res, next) => {
                         upcomingCount: { $sum: 1 }
                     }
                 }
+            ]),
+            // Assigned contacts aggregations
+            Lead.aggregate([
+                { $unwind: "$assignmentHistory" },
+                {
+                    $match: {
+                        "assignmentHistory.assignedAt": { $lt: today }
+                    }
+                },
+                {
+                    $group: {
+                        _id: "$assignmentHistory.userId",
+                        assignedCount: { $sum: 1 }
+                    }
+                }
+            ]),
+            Lead.aggregate([
+                { $unwind: "$assignmentHistory" },
+                {
+                    $match: {
+                        "assignmentHistory.assignedAt": { $gte: selectedDate, $lt: nextDay }
+                    }
+                },
+                {
+                    $group: {
+                        _id: "$assignmentHistory.userId",
+                        assignedCount: { $sum: 1 }
+                    }
+                }
             ])
         ]);
 
@@ -1005,6 +1034,14 @@ export const getWorkingReport = async (req, res, next) => {
             if (curr._id) acc[String(curr._id)] = curr;
             return acc;
         }, {});
+        const historicalAssignedMap = historicalAssigned.reduce((acc, curr) => {
+            if (curr._id) acc[String(curr._id)] = curr;
+            return acc;
+        }, {});
+        const dailyAssignedMap = dailyAssigned.reduce((acc, curr) => {
+            if (curr._id) acc[String(curr._id)] = curr;
+            return acc;
+        }, {});
 
         const cumulativeData = allUsers.map(user => {
             const uid = String(user._id);
@@ -1015,6 +1052,7 @@ export const getWorkingReport = async (req, res, next) => {
             const noResponse = histH.noResponse;
             const missed = histP.missed || 0;
             const total = completed + noResponse + missed;
+            const assigned = historicalAssignedMap[uid]?.assignedCount || 0;
 
             return {
                 _id: user._id,
@@ -1023,7 +1061,8 @@ export const getWorkingReport = async (req, res, next) => {
                 total,
                 completed,
                 noResponse,
-                missed
+                missed,
+                assigned
             };
         });
 
@@ -1040,6 +1079,7 @@ export const getWorkingReport = async (req, res, next) => {
             // Missed logic: Report finalized at 6 PM
             const missed = (selectedDate < today || (isToday && isAfter6PM)) ? pending : 0;
             const scheduled = completed + noResponse + pending;
+            const assigned = dailyAssignedMap[uid]?.assignedCount || 0;
 
             return {
                 _id: user._id,
@@ -1050,6 +1090,7 @@ export const getWorkingReport = async (req, res, next) => {
                 noResponse,
                 missed,
                 upcoming,
+                assigned,
                 isFinalized: !isToday || isAfter6PM
             };
         });
@@ -1071,15 +1112,25 @@ export const getLeadById = async (req, res, next) => {
 
 export const createLead = async (req, res, next) => {
     try {
+        if (req.body.assignedTo === '' || req.body.assignedTo === null) {
+            req.body.assignedTo = null;
+        }
         let { phone } = req.body;
         if (phone) {
             phone = String(phone).trim();
+            const phoneValidation = phoneUtils.validatePhoneNumber(phone);
+            if (!phoneValidation.isValid) {
+                return res.status(400).json({ message: phoneValidation.reason });
+            }
+            phone = phoneValidation.normalized;
             req.body.phone = phone;
 
             const existingLead = await Lead.findOne({ phone: phone });
             if (existingLead) {
                 return res.status(400).json({ message: `A contact with phone ${phone} already exists.` });
             }
+        } else {
+            return res.status(400).json({ message: 'Phone number is required' });
         }
         if (req.body.assignedTo) {
             req.body.assignmentHistory = [{
@@ -1101,8 +1152,17 @@ export const updateLead = async (req, res, next) => {
         const leadId = req.params.id;
         const updates = req.body;
 
+        if (updates.assignedTo === '' || updates.assignedTo === null) {
+            updates.assignedTo = null;
+        }
+
         if (updates.phone) {
             updates.phone = String(updates.phone).trim();
+            const phoneValidation = phoneUtils.validatePhoneNumber(updates.phone);
+            if (!phoneValidation.isValid) {
+                return res.status(400).json({ message: phoneValidation.reason });
+            }
+            updates.phone = phoneValidation.normalized;
 
             const existingWithPhone = await Lead.findOne({
                 phone: updates.phone,
@@ -1111,6 +1171,8 @@ export const updateLead = async (req, res, next) => {
             if (existingWithPhone) {
                 return res.status(400).json({ message: `Another contact with phone ${updates.phone} already exists.` });
             }
+        } else if (updates.phone === '') {
+            return res.status(400).json({ message: 'Phone number is required' });
         }
 
         if (updates.assignedTo) {
@@ -1158,13 +1220,19 @@ export const bulkDeleteLeads = async (req, res, next) => {
 export const bulkAssignLeads = async (req, res, next) => {
     try {
         const { ids, userId } = req.body;
+        let targetUserId = userId;
+        if (targetUserId === '' || targetUserId === null) {
+            targetUserId = null;
+        }
         const leadsToUpdate = await Lead.find({ _id: { $in: ids } });
         const updatePromises = leadsToUpdate.map(lead => {
-            lead.assignedTo = userId;
-            lead.assignmentHistory.push({
-                userId,
-                assignedBy: 'System (Bulk Assignment)'
-            });
+            lead.assignedTo = targetUserId;
+            if (targetUserId) {
+                lead.assignmentHistory.push({
+                    userId: targetUserId,
+                    assignedBy: 'System (Bulk Assignment)'
+                });
+            }
             return lead.save();
         });
         await Promise.all(updatePromises);
@@ -1176,7 +1244,12 @@ export const bulkUpdateLeads = async (req, res, next) => {
     try {
         const { ids, updates, addTags, removeTags } = req.body;
         const mongoUpdate = {};
-        if (updates && Object.keys(updates).length > 0) mongoUpdate.$set = updates;
+        if (updates && Object.keys(updates).length > 0) {
+            if (updates.assignedTo === '' || updates.assignedTo === null) {
+                updates.assignedTo = null;
+            }
+            mongoUpdate.$set = updates;
+        }
         
         if (addTags && addTags.length > 0) {
             const tagIds = await resolveTags(addTags);
@@ -1204,7 +1277,14 @@ export const getApiLeads = async (req, res, next) => {
             .populate('tags')
             .sort({ createdAt: -1 })
             .lean();
-        res.json(apiLeads);
+        const mapped = apiLeads.map(lead => {
+            const combinedPhone = (lead.countryCode || '') + lead.phone;
+            return {
+                ...lead,
+                phone: combinedPhone
+            };
+        });
+        res.json(mapped);
     } catch (error) { next(error); }
 };
 
@@ -1212,15 +1292,22 @@ export const updateApiLead = async (req, res, next) => {
     try {
         const leadId = req.params.id;
         const updates = req.body;
+        if (updates.assignedTo === '' || updates.assignedTo === null) {
+            updates.assignedTo = null;
+        }
         if (updates.phone) {
             updates.phone = String(updates.phone).trim();
+            const parsed = phoneUtils.parsePhoneNumber(updates.phone);
+            updates.countryCode = parsed.countryCode;
+            updates.phone = parsed.localNumber;
 
             const existingWithPhone = await ApiLead.findOne({
                 phone: updates.phone,
+                countryCode: updates.countryCode,
                 _id: { $ne: leadId }
             });
             if (existingWithPhone) {
-                return res.status(400).json({ message: `Another pending contact with phone ${updates.phone} already exists.` });
+                return res.status(400).json({ message: `Another pending contact with phone ${updates.countryCode}${updates.phone} already exists.` });
             }
         }
         if (updates.tags) {
@@ -1228,7 +1315,10 @@ export const updateApiLead = async (req, res, next) => {
         }
         const updatedLead = await ApiLead.findByIdAndUpdate(leadId, updates, { new: true }).populate('tags');
         if (!updatedLead) return res.status(404).json({ message: 'API Lead not found' });
-        res.json(updatedLead);
+        
+        const leadObj = updatedLead.toObject ? updatedLead.toObject() : updatedLead;
+        leadObj.phone = (leadObj.countryCode || '') + leadObj.phone;
+        res.json(leadObj);
     } catch (error) { next(error); }
 };
 
@@ -1244,8 +1334,14 @@ export const approveApiLead = async (req, res, next) => {
         const stagedLead = await ApiLead.findById(req.params.id).lean();
         if (!stagedLead) return res.status(404).json({ message: 'API Lead not found' });
 
-        const fullPhone = (stagedLead.countryCode || '') + stagedLead.phone;
-        const existingInCRM = await Lead.findOne({ phone: fullPhone.trim() });
+        const rawPhone = (stagedLead.countryCode || '') + stagedLead.phone;
+        const phoneValidation = phoneUtils.validatePhoneNumber(rawPhone);
+        if (!phoneValidation.isValid) {
+            return res.status(400).json({ message: `Cannot approve lead: ${phoneValidation.reason}` });
+        }
+        const normalizedPhone = phoneValidation.normalized;
+
+        const existingInCRM = await Lead.findOne({ phone: normalizedPhone });
 
         if (existingInCRM) {
             const incomingCars = stagedLead.carDetails || [];
@@ -1269,6 +1365,7 @@ export const approveApiLead = async (req, res, next) => {
                 }
             }
 
+            existingInCRM.phone = normalizedPhone;
             await existingInCRM.save();
             await ApiLead.findByIdAndDelete(req.params.id);
 
@@ -1280,9 +1377,10 @@ export const approveApiLead = async (req, res, next) => {
         }
 
         const leadData = { ...stagedLead };
-        if (leadData.countryCode && leadData.phone) {
-            leadData.phone = `${leadData.countryCode}${leadData.phone}`;
+        if (leadData.assignedTo === '' || leadData.assignedTo === null) {
+            leadData.assignedTo = null;
         }
+        leadData.phone = normalizedPhone;
         delete leadData.countryCode;
         delete leadData._id;
         delete leadData.createdAt;

@@ -7,7 +7,17 @@ import * as webhookController from '../controllers/webhookController.js';
 import { authenticate, authorize } from '../middleware/authMiddleware.js';
 import { validate, loginValidation, leadValidation } from '../middleware/validationMiddleware.js';
 
+import mongoose from 'mongoose';
+
 const router = express.Router();
+
+router.get('/debug-db', (req, res) => {
+    res.json({
+        dbName: mongoose.connection.name,
+        host: mongoose.connection.host,
+        readyState: mongoose.connection.readyState
+    });
+});
 
 // Auth
 router.post('/auth/login', loginValidation, validate, authController.login);
@@ -53,8 +63,8 @@ router.post('/leads/bulk-prefix', leadsController.bulkUpdatePhonePrefix);
 
 // API Leads
 router.get('/api-leads', authorize(['admin', 'sales']), leadsController.getApiLeads);
-router.put('/api-leads/:id', authorize(['admin']), leadsController.updateApiLead);
-router.delete('/api-leads/:id', authorize(['admin']), leadsController.deleteApiLead);
-router.post('/api-leads/:id/approve', authorize(['admin']), leadsController.approveApiLead);
+router.put('/api-leads/:id', authorize(['admin', 'sales']), leadsController.updateApiLead);
+router.delete('/api-leads/:id', authorize(['admin', 'sales']), leadsController.deleteApiLead);
+router.post('/api-leads/:id/approve', authorize(['admin', 'sales']), leadsController.approveApiLead);
 
 export default router;
